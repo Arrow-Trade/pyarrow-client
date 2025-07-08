@@ -1,4 +1,5 @@
-__title__ = 'py-arrow'
+__title__ = 'pyarrow'
+__version__ = 'v0.0.1'
 __description__ = 'Official Python Client Library for Arrow'
 __url__ = 'https://arrow.trade'
 __download_url__ = ''
