@@ -4,8 +4,9 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse, parse_qs
-
+import pyarrow.exceptions as ex
 import pyotp
+from pyarrow.arrow_utils import expiry_dates
 
 from pyarrow.__version__ import __title__, __version__
 from pyarrow.constants import Exchange, OrderType, ProductType, Retention, TransactionType, Variety
@@ -18,11 +19,12 @@ import pyarrow.constants as constants
 
 log = logging.getLogger(__name__)
 
+
 class ArrowClient(object):
     DEFAULT_TIMEOUT = 10
-    DEFAULT_ROOT_URL = "https://api.arrow.trade"
-    DEFAULT_LOGIN_URL = "https://app.arrow.trade/auth/app/login"
-    VALIDATE_2FA_URL = "https://api.arrow.trade/auth/validate-2fa"
+    DEFAULT_ROOT_URL = "https://api.tiqs.trading"
+    DEFAULT_LOGIN_URL = "https://app.tiqs.in/auth/app/login"
+    VALIDATE_2FA_URL = "https://api.tiqs.in/auth/validate-2fa"
 
     def __init__(
             self, app_id: str,
@@ -31,7 +33,8 @@ class ArrowClient(object):
             root_url: Optional[str] = None,
             pool_config: Optional[Dict[str, Any]] = None) -> None:
         self.app_id = app_id
-        self.timeout = timeout
+        self.req_session = requests.Session()
+        self.timeout = timeout or self.DEFAULT_TIMEOUT
         self.debug = debug
         self.root_url = root_url or self.DEFAULT_ROOT_URL
         self.disable_ssl = False
@@ -52,10 +55,9 @@ class ArrowClient(object):
     def invalidate_session(self) -> None:
         self._token = None
 
-    def get_instruments(self) -> List[Dict[str, Any]]:
-        data = self._get(self._routes.ALL_INSTRUMENTS)
-        print(data)
-        pass
+    def get_instruments(self) -> Any:
+        return self._get(self._routes.ALL_INSTRUMENTS)
+
 
     # Order Routes
     def get_order(self, order_id: str) -> List[Dict[str, Any]]:
@@ -123,24 +125,33 @@ class ArrowClient(object):
         )
         return response["message"]
 
+    # User Details Routes
+    def get_user_details(self) -> Dict[str, Any]:
+        return self._get(self._routes.USER_DETAILS)
+
+    # User Holdings
+    def get_holdings(self) -> Dict[str, Any]:
+        return self._get(self._routes.GET_USER_HOLDINGS)
+
+    @staticmethod
+    def get_expiry_dates(symbol: str, year: str):
+        return expiry_dates[symbol][year]
+
     # Margin Routes
     def get_order_margin(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        return self._post(self._routes.ORDER_MARGIN, params)
+        return self._post(self._routes.ORDER_MARGIN, params=params)
 
     def get_basket_margin(self, orders: List[Dict[str, Any]]) -> Dict[str, Any]:
         return self._post(self._routes.BASKET_MARGIN, params=orders)
 
-
     def _authenticate(self, checksum: str, request_token: str) -> Dict[str, str]:
-        response = self._post(
-            self._routes.AUTHENTICATE_TOKEN, {
-                "appId": self.app_id,
-                "token": request_token,
-                "checkSum": checksum,
-            }
-        )
+        params = {
+            "appId": self.app_id,
+            "token": request_token,
+            "checkSum": checksum,
+        }
 
-        print(response)
+        response = self._post(self._routes.AUTHENTICATE_TOKEN, params=params)
 
         if "token" in response:
             self._token = response["token"]
@@ -186,7 +197,7 @@ class ArrowClient(object):
 
         # Validate 2FA
         totp_payload = {
-            "code": request_id,
+            "code": passcode,  # Fixed: use passcode instead of request_id
             "requestId": request_id,
             "userId": user_id,
         }
@@ -209,102 +220,117 @@ class ArrowClient(object):
             response = self.login(request_token=request_token, api_secret=api_secret)
             return response
         except Exception as e:
-            log.error("Failed to generate 2FA URL: {}".format(e))
+            log.error("Failed to complete login: {}".format(e))
             raise
-
-
 
     def _generate_checksum(self, request_token: str, api_secret: str) -> str:
         input_str = f"{self.app_id}:{api_secret}:{request_token}"
         return hashlib.sha256(input_str.encode("utf-8")).hexdigest()
 
-
     # HTTP Route Methods
     def _get(self, route: str, url_args: Optional[Dict[str, str]] = None, params: Any = None) -> Any:
         return self._request("GET", route, url_args, params)
 
-    def _post(self, route: str, url_args: Optional[Dict[str, str]] = None, params: Any = None) -> Any:
-        return self._request("POST", route, url_args, params)
+    def _post(self, route: str, url_args: Optional[Dict[str, str]] = None, params: Any = None,
+              query_params: Any = None) -> Any:
+        return self._request("POST", route, url_args, params, query_params)
 
-    def _patch(self, route: str, url_args: Optional[Dict[str, str]] = None, params: Any = None) -> Any:
-        return self._request("PATCH", route, url_args, params)
+    def _patch(self, route: str, url_args: Optional[Dict[str, str]] = None, params: Any = None,
+               query_params: Any = None) -> Any:
+        return self._request("PATCH", route, url_args, params, query_params)
 
     def _delete(self, route: str, url_args: Optional[Dict[str, str]] = None, params: Any = None) -> Any:
         return self._request("DELETE", route, url_args, params)
 
-
-    def _request(self, method: str, route: str, url_args: Optional[Dict[str, str]] = None, params: Any = None):
+    def _request(self, method: str, route: str,
+                 url_args: Optional[Dict[str, str]] = None,
+                 params: Any = None, query_params: Any = None) -> Any:
+        # Build URL
         url = route.format(**url_args) if url_args else route
 
+        # Headers
         headers = {
-            "User-agent": f"{__title__}-pythin/{__version__}",
+            "User-Agent": f"pyarrow/{__version__}",
             "appId": self.app_id,
+            "Content-Type": "application/json"  # Add explicit content type
         }
 
+        # Only add token header if we actually have a token (not empty string)
         if self._token:
             headers["token"] = self._token
 
+        if self.debug:
+            log.debug(f"Request: {method} {url} params={json.dumps(params)} headers={json.dumps(headers)}")
 
-        if params is not None and method in ["GET", "DELETE"]:
-            query_params = params
+        # Handle parameters correctly
+        json_data = None
+        query_params_final = query_params
+
+        if method in ["POST", "PUT", "PATCH"]:
+            json_data = params
+        elif method in ["GET", "DELETE"] and params:
+            query_params_final = params
 
         try:
-            r = self.req_session.request(method,
-                                         url,
-                                         json=params if (method in ["POST", "PUT", "PATCH"]) else None,
-                                         data=None,
-                                         params=query_params,
-                                         headers=headers,
-                                         verify=not self.disable_ssl,
-                                         allow_redirects=True,
-                                         timeout=self.timeout,
-                                         proxies=self.proxies)
+            r = self.req_session.request(
+                method=method,
+                url=url,
+                json=json_data,
+                params=query_params_final,
+                headers=headers,
+                verify=not self.disable_ssl,
+                allow_redirects=True,
+                timeout=self.timeout,
+                proxies=self.proxies
+            )
         except Exception as e:
             raise e
 
         if self.debug:
-            log.debug('response: ' + method + " " + url + " " + f"\n{r.content[:1000]!r}")
-        if "json" in r.headers["content-type"]:
+            log.debug(f"Response: {method} {url}\n{r.content[:1000]!r}")
+
+        content_type = r.headers.get("content-type", "")
+
+        # JSON response
+        if "json" in content_type:
             try:
                 data = r.json()
             except ValueError:
-                raise ex.DataException(f"Couldn't parse the JSON response received from the server: {r.content!r}")
+                raise ex.DataException(f"Invalid JSON response: {r.content!r}")
 
-            # historical data is in list format, so we need to return list data as it is
-            if data and isinstance(data, dict):
+            if isinstance(data, dict):
                 if data.get(constants.STATUS) == constants.ERROR or data.get(constants.ERROR_CODE):
                     if r.status_code == 403:
-                        # TODO: expire session
+                        # TODO: handle session expiry
                         pass
-
-                    # if data.message does not exist, this will create general exception
                     exp = getattr(ex, str(data.get(constants.ERROR_CODE)), ex.GeneralException)
-                    raise exp(data[constants.ERROR_MESSAGE], code=r.status_code)
-                return data["data"]
+                    raise exp(data.get(constants.ERROR_MESSAGE, "Unknown Error"), code=r.status_code)
+                return data.get("data", data)
             return data
-        elif "octet-stream" in r.headers["content-type"]:
+
+        # Binary response
+        if "octet-stream" in content_type:
             return r.content
-        else:
-            raise ex.DataException(
-                f"Unknown Content-Type ({r.headers['content-type']}) with response: ({r.content[:1000]!r})")
+
+        # Unknown response type
+        raise ex.DataException(f"Unknown Content-Type ({content_type}) Response: {r.content[:1000]!r}")
 
     # Data Parsing Methods
     def _format_order_response(self, data: Union[Dict[str, Any], List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
         """Format order response data."""
         order_list = [data] if isinstance(data, dict) else data
-        return self._format_datetime_fields(self, order_list, ["timeStamp", "exchangeUpdateTime", "requestTime"])
+        return self._format_datetime_fields(order_list, ["timeStamp", "exchangeUpdateTime", "requestTime"])
 
     def _format_orders_response(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Format orders response data."""
-        return self._format_datetime_fields(self, data, ["timeStamp", "exchangeUpdateTime"])
-
+        return self._format_datetime_fields(data, ["timeStamp", "exchangeUpdateTime"])
 
     def _format_trades_response(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Format trades response data."""
-        return self._format_datetime_fields(self, data, ["fillTime", "timeStamp", "exchangeUpdateTime", "requestTime"])
+        return self._format_datetime_fields(data, ["fillTime", "timeStamp", "exchangeUpdateTime", "requestTime"])
 
     @staticmethod
-    def _format_datetime_fields(self, data: List[Dict[str, Any]], datetime_fields: List[str]) -> List[Dict[str, Any]]:
+    def _format_datetime_fields(data: List[Dict[str, Any]], datetime_fields: List[str]) -> List[Dict[str, Any]]:
         """Convert datetime strings and epoch times in response data."""
         for item in data:
             # Convert datetime strings
@@ -324,9 +350,9 @@ class ArrowClient(object):
     def get_index_list(self) -> List[Dict[str, Any]]:
         return self._get(self._routes.INDEX_LIST)
 
-    #Properties
+    # Properties
     @property
-    def token(self) ->str:
+    def token(self) -> str:
         return self._token or ""
 
 

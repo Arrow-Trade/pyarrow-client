@@ -49,6 +49,8 @@ class _PATHS(BaseEnum):
     GET_USER_TRADES = "/user/trades"
     GET_USER_LIMITS = "/user/limits"
     GET_USER_POSITIONS = "/user/positions"
+    GET_USER_HOLDINGS = "/user/holdings"
+
 
     # Orders
     GET_ORDER_BY_ID = "/order/{order_id}"
