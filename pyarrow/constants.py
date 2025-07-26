@@ -67,8 +67,11 @@ class _PATHS(BaseEnum):
 class Routes:
     """Helper class to construct API routes."""
 
-    _home_url: str = "https://app.arrow.trade/app/login"
-    _root_url: str = "https://api.arrow.trade"
+    # _home_url: str = "https://app.arrow.trade/app/login"
+    # _root_url: str = "https://api.arrow.trade"
+
+    _home_url: str = "https://app.tiqs.in/app/login"
+    _root_url: str = "https://api.tiqs.trading"
 
     def __init__(self, root_url: Optional[str] = None) -> None:
         if root_url:

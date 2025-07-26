@@ -54,6 +54,8 @@ class ArrowClient(object):
 
     def get_instruments(self) -> List[Dict[str, Any]]:
         data = self._get(self._routes.ALL_INSTRUMENTS)
+        print(data)
+        pass
 
     # Order Routes
     def get_order(self, order_id: str) -> List[Dict[str, Any]]:
@@ -138,6 +140,8 @@ class ArrowClient(object):
             }
         )
 
+        print(response)
+
         if "token" in response:
             self._token = response["token"]
             if self.debug:
@@ -145,6 +149,8 @@ class ArrowClient(object):
 
         return response
 
+    def login_url(self) -> str:
+        return f"{self._routes.get_home_url()}?appId={self.app_id}"
 
     def login(self, request_token: str, api_secret: str) -> Dict[str, str]:
         checksum = self._generate_checksum(request_token, api_secret)
@@ -232,14 +238,55 @@ class ArrowClient(object):
 
         headers = {
             "User-agent": f"{__title__}-pythin/{__version__}",
-            "appId": self.app_id
+            "appId": self.app_id,
         }
 
         if self._token:
             headers["token"] = self._token
 
+
+        if params is not None and method in ["GET", "DELETE"]:
+            query_params = params
+
+        try:
+            r = self.req_session.request(method,
+                                         url,
+                                         json=params if (method in ["POST", "PUT", "PATCH"]) else None,
+                                         data=None,
+                                         params=query_params,
+                                         headers=headers,
+                                         verify=not self.disable_ssl,
+                                         allow_redirects=True,
+                                         timeout=self.timeout,
+                                         proxies=self.proxies)
+        except Exception as e:
+            raise e
+
         if self.debug:
-            log.debug(f"Request: {method} {url} {json.dumps(params)} {json.dumps(headers)}")
+            log.debug('response: ' + method + " " + url + " " + f"\n{r.content[:1000]!r}")
+        if "json" in r.headers["content-type"]:
+            try:
+                data = r.json()
+            except ValueError:
+                raise ex.DataException(f"Couldn't parse the JSON response received from the server: {r.content!r}")
+
+            # historical data is in list format, so we need to return list data as it is
+            if data and isinstance(data, dict):
+                if data.get(constants.STATUS) == constants.ERROR or data.get(constants.ERROR_CODE):
+                    if r.status_code == 403:
+                        # TODO: expire session
+                        pass
+
+                    # if data.message does not exist, this will create general exception
+                    exp = getattr(ex, str(data.get(constants.ERROR_CODE)), ex.GeneralException)
+                    raise exp(data[constants.ERROR_MESSAGE], code=r.status_code)
+                return data["data"]
+            return data
+        elif "octet-stream" in r.headers["content-type"]:
+            return r.content
+        else:
+            raise ex.DataException(
+                f"Unknown Content-Type ({r.headers['content-type']}) with response: ({r.content[:1000]!r})")
 
     # Data Parsing Methods
     def _format_order_response(self, data: Union[Dict[str, Any], List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
@@ -281,5 +328,6 @@ class ArrowClient(object):
     @property
     def token(self) ->str:
         return self._token or ""
+
 
 Arrow = ArrowClient

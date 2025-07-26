@@ -1,0 +1,9 @@
+python-deteutil
+websocket-client
+websockets
+Twisted
+autobahn
+requests
+urllib3
+setuptools
+six
