@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 import hashlib
 import json
 import logging
@@ -22,9 +22,9 @@ log = logging.getLogger(__name__)
 
 class ArrowClient(object):
     DEFAULT_TIMEOUT = 10
-    DEFAULT_ROOT_URL = "https://api.tiqs.trading"
-    DEFAULT_LOGIN_URL = "https://app.tiqs.in/auth/app/login"
-    VALIDATE_2FA_URL = "https://api.tiqs.in/auth/validate-2fa"
+    DEFAULT_ROOT_URL = "https://api.arrow.trade/oms"
+    DEFAULT_LOGIN_URL = "https://api.arrow.trade/auth/app/login"
+    VALIDATE_2FA_URL = "https://api.arrow.trade/auth/validate-2fa"
 
     def __init__(
             self, app_id: str,
@@ -43,8 +43,42 @@ class ArrowClient(object):
         self._token: Optional[str] = None
         self._routes = constants.Routes(root_url=self.root_url)
 
-    def place_order(self, exchange: Exchange, symbol: str, token: str, quantity: int, price: float):
-        pass
+    def place_order(self,
+            exchange: Exchange,
+            symbol: str,
+            token: str,
+            quantity: int,
+            disclosed_quantity: int,
+            product: ProductType,
+            order_type: OrderType,
+            variety: Variety,
+            transaction_type: TransactionType,
+            price: float,
+            validity: Retention,
+            tags: Optional[str] = None,
+            amo: bool = False,
+            trigger_price: Optional[float] = None) -> str:
+        params = dict(
+            exchange=str(exchange),
+            symbol=symbol,
+            token=token,
+            quantity="{qty}".format(qty=quantity),
+            disclosedQty="{disclosed_qty}".format(disclosed_qty=disclosed_quantity),
+            product=str(product),
+            order=str(order_type),
+            transactionType=str(transaction_type),
+            price="{price}".format(price=price),
+            validity=str(validity),
+            tags=tags or "",
+            amo=amo,
+            triggerPrice="{trigger_price}".format(trigger_price=trigger_price or "")
+        )  # type: Dict[str, Any]
+        response = self._post(
+            self._routes.PLACE_ORDER,
+            url_args={"variety": str(variety)},
+            params=params
+        )
+        return response["orderNo"]
 
     def set_token(self, token: str) -> None:
         self._token = token
@@ -55,13 +89,14 @@ class ArrowClient(object):
     def invalidate_session(self) -> None:
         self._token = None
 
+    # TODO
     def get_instruments(self) -> Any:
-        return self._get(self._routes.ALL_INSTRUMENTS)
-
+        # return self._get(self._routes.ALL_INSTRUMENTS)
+        pass
 
     # Order Routes
     def get_order(self, order_id: str) -> List[Dict[str, Any]]:
-        data = self._get(self._routes.GET_ORDER_BY_ID, url_args={"orderId": order_id})
+        data = self._get(self._routes.GET_ORDER_BY_ID, url_args={"order_id": order_id})
         return self._format_order_response(data)
 
     def get_orders(self) -> List[Dict[str, Any]]:
@@ -150,9 +185,7 @@ class ArrowClient(object):
             "token": request_token,
             "checkSum": checksum,
         }
-
-        response = self._post(self._routes.AUTHENTICATE_TOKEN, params=params)
-
+        response = self._post("https://api.arrow.trade/auth/app/authenticate-token", params=params)
         if "token" in response:
             self._token = response["token"]
             if self.debug:
@@ -183,7 +216,7 @@ class ArrowClient(object):
         # Generate the request ID
         try:
             login_resp = self._post(login_url, params=login_payload)
-            request_id = login_resp["data"]["requestId"]
+            request_id = login_resp["requestId"]
         except Exception as e:
             log.error("Failed to generate Request id: {}".format(e))
             raise
@@ -204,7 +237,7 @@ class ArrowClient(object):
 
         try:
             totp_resp = self._post(self.VALIDATE_2FA_URL, params=totp_payload)
-            redirect_url = totp_resp["data"]["redirectUrl"]
+            redirect_url = totp_resp["redirectUrl"]
         except Exception as e:
             log.error("Failed to Generate 2FA URL: {}".format(e))
             raise
@@ -218,6 +251,7 @@ class ArrowClient(object):
 
         try:
             response = self.login(request_token=request_token, api_secret=api_secret)
+            self.set_token(response["token"])
             return response
         except Exception as e:
             log.error("Failed to complete login: {}".format(e))
@@ -340,7 +374,8 @@ class ArrowClient(object):
 
             # Convert epoch time to int
             if item.get("orderTime"):
-                item["orderTime"] = int(item["orderTime"])
+                dt = datetime.strptime(item["orderTime"], "%Y-%m-%dT%H:%M:%S")
+                item["orderTime"] = int(dt.timestamp())
 
         return data
 
