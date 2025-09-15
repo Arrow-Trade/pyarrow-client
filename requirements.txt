@@ -1,6 +1,4 @@
-python-deteutil
 websocket-client
-websockets
 Twisted
 autobahn
 requests

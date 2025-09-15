@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 
 class ArrowClient(object):
     DEFAULT_TIMEOUT = 10
-    DEFAULT_ROOT_URL = "https://api.arrow.trade/oms"
+    DEFAULT_ROOT_URL = "https://edge.arrow.trade"
     DEFAULT_LOGIN_URL = "https://api.arrow.trade/auth/app/login"
     VALIDATE_2FA_URL = "https://api.arrow.trade/auth/validate-2fa"
 
@@ -46,7 +46,6 @@ class ArrowClient(object):
     def place_order(self,
             exchange: Exchange,
             symbol: str,
-            token: str,
             quantity: int,
             disclosed_quantity: int,
             product: ProductType,
@@ -61,7 +60,7 @@ class ArrowClient(object):
         params = dict(
             exchange=str(exchange),
             symbol=symbol,
-            token=token,
+            # token=token,
             quantity="{qty}".format(qty=quantity),
             disclosedQty="{disclosed_qty}".format(disclosed_qty=disclosed_quantity),
             product=str(product),
@@ -113,8 +112,8 @@ class ArrowClient(object):
             self,
             order_id: str,
             exchange: Exchange,
-            token: str,
             quantity: int,
+            symbol: str,
             price: float,
             disclosed_qty: int,
             product: ProductType,
@@ -130,10 +129,10 @@ class ArrowClient(object):
         """Modify an existing order."""
         params = {
             "exchange": str(exchange),
-            "token": token,
             "quantity": str(quantity),
             "disclosedQty": str(disclosed_qty),
             "product": str(product),
+            "symbol": symbol,
             "transactionType": str(transaction_type),
             "order": str(order_type),
             "price": str(price),
@@ -181,9 +180,9 @@ class ArrowClient(object):
 
     def _authenticate(self, checksum: str, request_token: str) -> Dict[str, str]:
         params = {
-            "appId": self.app_id,
+            "appID": self.app_id,
             "token": request_token,
-            "checkSum": checksum,
+            "checksum": checksum,
         }
         response = self._post("https://api.arrow.trade/auth/app/authenticate-token", params=params)
         if "token" in response:
@@ -194,7 +193,7 @@ class ArrowClient(object):
         return response
 
     def login_url(self) -> str:
-        return f"{self._routes.get_home_url()}?appId={self.app_id}"
+        return f"{self._routes.get_home_url()}?appID={self.app_id}"
 
     def login(self, request_token: str, api_secret: str) -> Dict[str, str]:
         checksum = self._generate_checksum(request_token, api_secret)
@@ -203,13 +202,12 @@ class ArrowClient(object):
 
     def auto_login(self, user_id: str, password: str, api_secret: str, totp_secret: str) -> Dict[str, str]:
         login_url = self.DEFAULT_LOGIN_URL
-
         login_payload = {
-            "userId": user_id,
+            "userID": user_id,
             "password": password,
             "captchaValue": "",
-            "captchaId": None,
-            "appId": self.app_id,
+            "captchaID": None,
+            "appID": self.app_id,
             "isAppLogin": True
         }
 
@@ -232,7 +230,7 @@ class ArrowClient(object):
         totp_payload = {
             "code": passcode,  # Fixed: use passcode instead of request_id
             "requestId": request_id,
-            "userId": user_id,
+            "userID": user_id,
         }
 
         try:
@@ -285,7 +283,7 @@ class ArrowClient(object):
         # Headers
         headers = {
             "User-Agent": f"pyarrow/{__version__}",
-            "appId": self.app_id,
+            "appID": self.app_id,
             "Content-Type": "application/json"  # Add explicit content type
         }
 
@@ -384,6 +382,13 @@ class ArrowClient(object):
 
     def get_index_list(self) -> List[Dict[str, Any]]:
         return self._get(self._routes.INDEX_LIST)
+
+    def get_option_chain_symbols(self):
+        return self._get(self._routes.OPTION_CHAIN_SYMBOLS)
+
+    def get_option_chain(self, params: Dict[str, str]) -> List[Dict[str, Any]]:
+        pass
+
 
     # Properties
     @property

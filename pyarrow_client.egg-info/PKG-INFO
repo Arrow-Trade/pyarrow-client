@@ -1,0 +1,490 @@
+Metadata-Version: 2.4
+Name: pyarrow-client
+Version: 1.0.1
+Summary: Python SDK for Arrow Trading API
+Author-email: Abhishek Jain <abhishek.jain@irage.in>, Shubham Jain <shubham.j@irage.in>
+License: MIT
+Project-URL: Homepage, https://github.com/arrowtech/py-arrow
+Project-URL: Bug Tracker, https://github.com/arrowtech/py-arrow/issues
+Project-URL: Documentation, https://docs.arrow.trade
+Project-URL: Source, https://github.com/arrowtech/py-arrow
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: requests>=2.25.0
+Requires-Dist: websocket-client>=1.0.0
+Requires-Dist: pyotp>=2.6.0
+Requires-Dist: python-dateutil>=2.8.0
+Requires-Dist: urllib3>=1.26.0
+Dynamic: license-file
+
+# PyArrow – Official Python Client for Arrow Trading API
+
+[![PyPI version](https://badge.fury.io/py/pyarrow-client.svg)](https://badge.fury.io/py/pyarrow-client)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python Versions](https://img.shields.io/pypi/pyversions/pyarrow-client.svg)](https://pypi.org/project/pyarrow-client/)
+[![Downloads](https://pepy.tech/badge/pyarrow-client)](https://pepy.tech/project/pyarrow-client)
+
+**ArrowConnect** is the official Python SDK for the Arrow Trading Platform, providing comprehensive access to trading APIs, real-time market data, and order management capabilities. Built for traders, quants, and fintech developers who need reliable, high-performance access to Indian financial markets.
+
+## 🚀 Key Features
+
+### 📊 **Market Data & Analytics**
+- Real-time quotes, OHLC, LTP, and market depth
+- Historical data retrieval and analysis
+- Option chain data and expiry information
+- Market holidays and trading calendars
+- Index listings and sector data
+
+### 💼 **Order Management**
+- Place, modify, and cancel orders across exchanges
+- Support for all order types (Market, Limit, SL, SL-M)
+- Bracket orders and cover orders
+- AMO (After Market Orders) support
+- Real-time order status tracking
+
+### 📡 **Real-time Streaming**
+- WebSocket-based live market data feeds
+- Order and position update streams
+- Multiple subscription modes (LTPC, Quote, Full)
+- Automatic reconnection with exponential backoff
+- Thread-safe event handling
+
+### 🔐 **Authentication & Security**
+- OAuth-based authentication flow
+- TOTP (Time-based OTP) integration
+- Automatic session management
+- Token refresh and validation
+
+---
+
+## 📦 Installation
+
+```bash
+pip install pyarrow-client
+```
+
+**Requirements:**
+- Python 3.7+
+- `requests`, `websocket-client`, `pyotp`
+
+---
+
+## 🏃‍♂️ Quick Start
+
+### Authentication
+
+```python
+from pyarrow import ArrowClient
+
+# Initialize client
+client = ArrowClient(app_id="your_app_id")
+
+# Method 1: Manual login (web-based)
+login_url = client.login_url()
+print(f"Visit: {login_url}")
+# After authorization, get request_token from callback
+client.login(request_token="token_from_callback", api_secret="your_secret")
+
+# Method 2: Automated login
+client.auto_login(
+    user_id="your_user_id",
+    password="your_password", 
+    api_secret="your_api_secret",
+    totp_secret="REDACTED"
+)
+```
+
+### Basic Trading Operations
+
+```python
+from pyarrow.constants import Exchange, OrderType, ProductType, TransactionType, Variety, Retention
+
+# Place a buy order
+order_id = client.place_order(
+    exchange=Exchange.NSE,
+    symbol="RELIANCE",
+    quantity=10,
+    disclosed_quantity=0,
+    product=ProductType.DELIVERY,
+    order_type=OrderType.MARKET,
+    variety=Variety.NORMAL,
+    transaction_type=TransactionType.BUY,
+    price=0.0,
+    validity=Retention.DAY
+)
+
+print(f"Order placed: {order_id}")
+
+# Get order status
+orders = client.get_orders()
+for order in orders:
+    print(f"Order {order['orderNo']}: {order['status']}")
+
+# Get user positions
+holdings = client.get_holdings()
+print(f"Current holdings: {holdings}")
+```
+
+---
+
+## 📡 Real-time Market Data
+
+### WebSocket Streaming
+
+```python
+from pyarrow import ArrowStreams, DataMode
+
+# Initialize streams
+streams = ArrowStreams(
+    appID="your_app_id",
+    token="your_access_token",
+    debug=True
+)
+
+# Set up event handlers
+def on_tick(tick):
+    print(f"Tick: {tick.token} LTP: {tick.ltp} Change: {tick.net_change}%")
+
+def on_order_update(order):
+    print(f"Order Update: {order}")
+
+# Connect handlers
+streams.data_stream.on_ticks = on_tick
+streams.order_stream.on_order_update = on_order_update
+
+# Connect to streams
+streams.connect_all()
+
+# Subscribe to market data
+token_list = [3045, 1594]  # NSE tokens for RELIANCE, INFY
+streams.subscribe_market_data(DataMode.LTPC, token_list)
+
+# Keep connection alive
+import time
+try:
+    while True:
+        time.sleep(1)
+except KeyboardInterrupt:
+    streams.disconnect_all()
+```
+
+### Market Data Modes
+
+```python
+# LTPC Mode - Last Trade Price & Change
+streams.subscribe_market_data(DataMode.LTPC, [3045])
+
+# Quote Mode - Detailed quotes with OI, volume
+streams.subscribe_market_data(DataMode.QUOTE, [3045])
+
+# Full Mode - Complete market depth (bids/asks)
+streams.subscribe_market_data(DataMode.FULL, [3045])
+```
+
+---
+
+## 💹 Advanced Trading Features
+
+### Order Modification
+
+```python
+# Modify existing order
+client.modify_order(
+    order_id="order_id_here",
+    exchange=Exchange.NSE,
+    quantity=15,  # Changed quantity
+    symbol="RELIANCE",
+    price=2500.0,  # New price
+    disclosed_qty=0,
+    product=ProductType.INTRADAY,
+    transaction_type=TransactionType.BUY,
+    order_type=OrderType.LIMIT,
+    validity=Retention.DAY
+)
+```
+
+### Bracket Orders
+
+```python
+# Place bracket order with target and stop loss
+order_id = client.place_order(
+    exchange=Exchange.NSE,
+    symbol="RELIANCE",
+    quantity=10,
+    disclosed_quantity=0,
+    product=ProductType.BRACKET,
+    order_type=OrderType.LIMIT,
+    variety=Variety.NORMAL,
+    transaction_type=TransactionType.BUY,
+    price=2450.0,
+    validity=Retention.DAY,
+    trigger_price=2400.0  # Stop loss trigger
+)
+```
+
+### Margin Calculation
+
+```python
+# Calculate margin for single order
+margin_params = {
+    "exchange": "NSE",
+    "symbol": "RELIANCE",
+    "quantity": 100,
+    "price": 2500,
+    "product": "MIS",
+    "transactionType": "BUY"
+}
+
+margin_info = client.get_order_margin(margin_params)
+print(f"Required margin: ₹{margin_info['totalMargin']}")
+
+# Calculate basket margin for multiple orders
+orders = [margin_params]  # Add multiple order dicts
+basket_margin = client.get_basket_margin(orders)
+```
+
+---
+
+## 📊 Market Data & Analytics
+
+### Historical Data & Instruments
+
+```python
+# Get all tradable instruments
+instruments = client.get_instruments()
+
+# Get option chain data
+option_symbols = client.get_option_chain_symbols()
+option_chain = client.get_option_chain({
+    "symbol": "NIFTY",
+    "expiry": "2024-03-28"
+})
+
+# Get market holidays
+holidays = client.get_holidays()
+
+# Get index listings
+indices = client.get_index_list()
+```
+
+### Expiry Information
+
+```python
+from pyarrow import ArrowClient
+
+# Get expiry dates for instruments
+nifty_expiries = ArrowClient.get_expiry_dates("NIFTY", "2024")
+print(f"NIFTY expiries: {nifty_expiries}")
+```
+
+---
+
+## 🔧 Configuration & Error Handling
+
+### Client Configuration
+
+```python
+client = ArrowClient(
+    app_id="your_app_id",
+    timeout=30,  # Request timeout in seconds
+    debug=True,  # Enable debug logging
+    root_url="https://edge.arrow.trade",  # Custom API endpoint
+    pool_config={
+        "pool_connections": 10,
+        "pool_maxsize": 20
+    }
+)
+```
+
+### WebSocket Configuration
+
+```python
+from pyarrow.streams import ConnectionConfig
+
+config = ConnectionConfig(
+    appID="your_app_id",
+    token="your_token",
+    debug=True,
+    enable_reconnect=True,
+    max_reconnect_attempts=300,
+    max_reconnect_delay=10,
+    read_timeout=30,
+    ping_interval=30
+)
+
+streams = ArrowStreams.from_config(config)
+```
+
+### Error Handling
+
+```python
+from pyarrow.exceptions import ArrowException
+
+try:
+    order_id = client.place_order(
+        # order parameters
+    )
+except ArrowException as e:
+    print(f"Trading error: {e.message} (Code: {e.code})")
+except Exception as e:
+    print(f"General error: {e}")
+```
+
+---
+
+## 📈 Sample Trading Strategy
+
+```python
+import time
+from pyarrow import ArrowClient, ArrowStreams, DataMode
+from pyarrow.constants import *
+
+class SimpleStrategy:
+    def __init__(self, app_id, token):
+        self.client = ArrowClient(app_id)
+        self.client.set_token(token)
+        
+        self.streams = ArrowStreams(app_id, token)
+        self.streams.data_stream.on_ticks = self.on_market_tick
+        
+        self.position = 0
+        self.target_symbol = "RELIANCE"
+        self.target_token = 3045
+        
+    def start(self):
+        # Connect to real-time feeds
+        self.streams.connect_data_stream()
+        self.streams.subscribe_market_data(DataMode.QUOTE, [self.target_token])
+        
+        print("Strategy started. Monitoring market data...")
+        
+    def on_market_tick(self, tick):
+        if tick.token == self.target_token:
+            # Simple momentum strategy
+            if tick.net_change > 2.0 and self.position == 0:
+                self.buy_signal(tick)
+            elif tick.net_change < -1.0 and self.position > 0:
+                self.sell_signal(tick)
+                
+    def buy_signal(self, tick):
+        try:
+            order_id = self.client.place_order(
+                exchange=Exchange.NSE,
+                symbol=self.target_symbol,
+                quantity=10,
+                disclosed_quantity=0,
+                product=ProductType.INTRADAY,
+                order_type=OrderType.MARKET,
+                variety=Variety.NORMAL,
+                transaction_type=TransactionType.BUY,
+                price=0.0,
+                validity=Retention.DAY
+            )
+            self.position = 10
+            print(f"BUY order placed: {order_id} at LTP: {tick.ltp}")
+        except Exception as e:
+            print(f"Buy order failed: {e}")
+            
+    def sell_signal(self, tick):
+        try:
+            order_id = self.client.place_order(
+                exchange=Exchange.NSE,
+                symbol=self.target_symbol,
+                quantity=self.position,
+                disclosed_quantity=0,
+                product=ProductType.INTRADAY,
+                order_type=OrderType.MARKET,
+                variety=Variety.NORMAL,
+                transaction_type=TransactionType.SELL,
+                price=0.0,
+                validity=Retention.DAY
+            )
+            self.position = 0
+            print(f"SELL order placed: {order_id} at LTP: {tick.ltp}")
+        except Exception as e:
+            print(f"Sell order failed: {e}")
+
+# Usage
+if __name__ == "__main__":
+    strategy = SimpleStrategy("your_app_id", "your_token")
+    strategy.start()
+    
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Strategy stopped")
+        strategy.streams.disconnect_all()
+```
+
+---
+
+## 🔍 API Reference
+
+### ArrowClient Methods
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `login(request_token, api_secret)` | Authenticate using request token | `Dict[str, str]` |
+| `auto_login(user_id, password, api_secret, totp_secret)` | Automated login with credentials | `Dict[str, str]` |
+| `place_order(**params)` | Place new order | `str` (order_id) |
+| `modify_order(order_id, **params)` | Modify existing order | `str` |
+| `cancel_order(order_id)` | Cancel order | `str` |
+| `get_orders()` | Get all orders | `List[Dict]` |
+| `get_order(order_id)` | Get specific order details | `List[Dict]` |
+| `get_trades()` | Get all trades | `List[Dict]` |
+| `get_holdings()` | Get user holdings | `Dict` |
+| `get_user_details()` | Get user profile | `Dict` |
+| `get_order_margin(params)` | Calculate order margin | `Dict` |
+| `get_basket_margin(orders)` | Calculate basket margin | `Dict` |
+
+### WebSocket Events
+
+| Event | Trigger | Data Type |
+|-------|---------|-----------|
+| `on_connect` | Connection established | `None` |
+| `on_disconnect` | Connection lost | `None` |
+| `on_ticks` | Market data received | `MarketTick` |
+| `on_order_update` | Order status changed | `Dict` |
+| `on_error` | Error occurred | `Exception` |
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+
+### Development Setup
+
+```bash
+git clone https://github.com/arrowtech/pyarrow-client-python.git
+cd pyarrow-client-python
+pip install -e .[dev]
+pytest tests/
+```
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 📞 Support
+
+- **Documentation**: [https://docs.arrow.trade](https://docs.arrow.trade)
+- **API Reference**: [https://api.arrow.trade/docs](https://api.arrow.trade/docs)
+- **Issues**: [GitHub Issues](https://github.com/arrowtech/pyarrow-client-python/issues)
+- **Support Email**: support@arrow.trade
+
+---
+
+## ⚠️ Disclaimer
+
+This software is for educational and informational purposes only. Trading in financial markets involves substantial risk and may not be suitable for all investors. Past performance is not indicative of future results. Please trade responsibly and consult with financial advisors before making investment decisions.
+
+---
+
+**Built with ❤️ by the Arrow Trading Team**

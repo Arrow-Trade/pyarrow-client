@@ -1,0 +1,14 @@
+LICENSE
+README.md
+pyproject.toml
+pyarrow/__version__.py
+pyarrow/arrow_utils.py
+pyarrow/connect.py
+pyarrow/constants.py
+pyarrow/exceptions.py
+pyarrow/sockets.py
+pyarrow_client.egg-info/PKG-INFO
+pyarrow_client.egg-info/SOURCES.txt
+pyarrow_client.egg-info/dependency_links.txt
+pyarrow_client.egg-info/requires.txt
+pyarrow_client.egg-info/top_level.txt
