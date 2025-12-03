@@ -41,7 +41,7 @@ class _PATHS(BaseEnum):
     GREEKS = "/info/greeks"
     QUOTE_DATA = "/info/quote/{mode}"
     QUOTES_DATA = "/info/quotes/{mode}"
-    GET_HISTORICAL_DATA = "/candle/{exchange}/{token}/{interval}"
+    GET_HISTORICAL_DATA = "/candle"
 
     # User Data
     USER_DETAILS = "/user/details"
@@ -60,7 +60,7 @@ class _PATHS(BaseEnum):
 
     # Margin
     ORDER_MARGIN = "/margin/order"
-    BASKET_ORDER_MARGIN = "/margin/basket"
+    BASKET_MARGIN = "/margin/basket"
 
 
 # -------------------------
@@ -73,7 +73,8 @@ class Routes:
     # _root_url: str = "https://api.arrow.trade"
 
     _home_url: str = "https://app.arrow.trade/app/login"
-    _root_url: str = "https://api.arrow.trade"
+    _root_url: str = "https://edge.arrow.trade"
+    _candle_url: str = "https://historical-api.arrow.trade"
 
     def __init__(self, root_url: Optional[str] = None) -> None:
         if root_url:
@@ -81,6 +82,9 @@ class Routes:
 
     def get_home_url(self) -> str:
         return self._home_url
+
+    def get_candle_url(self) -> str:
+        return self._candle_url
 
     def __getattr__(self, name: str) -> str:
         if name in _PATHS.__members__:

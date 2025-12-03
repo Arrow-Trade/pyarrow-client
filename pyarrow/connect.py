@@ -7,6 +7,9 @@ from urllib.parse import urlparse, parse_qs
 import pyarrow.exceptions as ex
 import pyotp
 from pyarrow.arrow_utils import expiry_dates
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
 
 from pyarrow.__version__ import __title__, __version__
 from pyarrow.constants import Exchange, OrderType, ProductType, Retention, TransactionType, Variety
@@ -54,13 +57,10 @@ class ArrowClient(object):
             transaction_type: TransactionType,
             price: float,
             validity: Retention,
-            tags: Optional[str] = None,
-            amo: bool = False,
-            trigger_price: Optional[float] = None) -> str:
+            remarks: Optional[str] = None) -> str:
         params = dict(
             exchange=str(exchange),
             symbol=symbol,
-            # token=token,
             quantity="{qty}".format(qty=quantity),
             disclosedQty="{disclosed_qty}".format(disclosed_qty=disclosed_quantity),
             product=str(product),
@@ -68,9 +68,7 @@ class ArrowClient(object):
             transactionType=str(transaction_type),
             price="{price}".format(price=price),
             validity=str(validity),
-            tags=tags or "",
-            amo=amo,
-            triggerPrice="{trigger_price}".format(trigger_price=trigger_price or "")
+            remarks=remarks or ""
         )  # type: Dict[str, Any]
         response = self._post(
             self._routes.PLACE_ORDER,
@@ -90,22 +88,27 @@ class ArrowClient(object):
 
     # TODO
     def get_instruments(self) -> Any:
-        # return self._get(self._routes.ALL_INSTRUMENTS)
-        pass
+        return self._get(self._routes.ALL_INSTRUMENTS)
 
     # Order Routes
-    def get_order(self, order_id: str) -> List[Dict[str, Any]]:
+    def get_order_details(self, order_id: str) -> List[Dict[str, Any]]:
         data = self._get(self._routes.GET_ORDER_BY_ID, url_args={"order_id": order_id})
         return self._format_order_response(data)
 
-    def get_orders(self) -> List[Dict[str, Any]]:
+    def get_order_book(self) -> List[Dict[str, Any]]:
         """Get all user orders."""
         data = self._get(self._routes.GET_USER_ORDERS)
         return self._format_orders_response(data)
 
-    def get_trades(self) -> List[Dict[str, Any]]:
+    def get_trade_book(self) -> List[Dict[str, Any]]:
         """Get all user trades."""
         data = self._get(self._routes.GET_USER_TRADES)
+        return self._format_trades_response(data)
+
+
+    def get_positions(self) -> List[Dict[str, Any]]:
+        """Get all user trades."""
+        data = self._get(self._routes.GET_USER_POSITIONS)
         return self._format_trades_response(data)
 
     def modify_order(
@@ -120,11 +123,7 @@ class ArrowClient(object):
             transaction_type: TransactionType,
             order_type: OrderType,
             validity: Retention,
-            amo: bool = False,
-            trigger_price: Optional[float] = None,
-            tags: Optional[str] = None,
-            book_loss_price: Optional[float] = None,
-            book_profit_price: Optional[float] = None
+            remarks: Optional[str] = None,
     ) -> str:
         """Modify an existing order."""
         params = {
@@ -137,11 +136,7 @@ class ArrowClient(object):
             "order": str(order_type),
             "price": str(price),
             "validity": str(validity),
-            "triggerPrice": str(trigger_price or "0"),
-            "bookLossPrice": str(book_loss_price or ""),
-            "bookProfitPrice": str(book_profit_price or ""),
-            "tags": tags or "",
-            "amo": amo
+            "remarks": remarks or "",
         }
 
         response = self._patch(
@@ -159,6 +154,40 @@ class ArrowClient(object):
         )
         return response["message"]
 
+    def cancel_all_orders(self):
+        data = self._get(self._routes.GET_USER_ORDERS)
+
+        # Filter only open orders
+        pending_orders = [
+            order for order in data
+            if order["orderStatus"] in ("OPEN", "TRIGGER_PENDING", "PARTIALLY_FILLED")
+        ]
+
+        # If nothing to cancel, return
+        if not pending_orders:
+            return []
+
+        results = []
+
+        # Set worker count (tweak based on your API rate limits)
+        MAX_WORKERS = 9
+
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            future_to_order = {
+                executor.submit(self.cancel_order, order["id"]): order["id"]
+                for order in pending_orders
+            }
+
+            for future in as_completed(future_to_order):
+                oid = future_to_order[future]
+                try:
+                    result = future.result()
+                    results.append((oid, "SUCCESS", result))
+                except Exception as e:
+                    results.append((oid, "FAILED", str(e)))
+
+        return results
+
     # User Details Routes
     def get_user_details(self) -> Dict[str, Any]:
         return self._get(self._routes.USER_DETAILS)
@@ -171,12 +200,64 @@ class ArrowClient(object):
     def get_expiry_dates(symbol: str, year: str):
         return expiry_dates[symbol][year]
 
+    def get_user_limits(self) -> List[Dict[str, Any]]:
+        return self._get(self._routes.GET_USER_LIMITS)
+
     # Margin Routes
-    def get_order_margin(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def order_margin(self,
+                     exchange: Exchange,
+                     symbol: str,
+                     quantity: int,
+                     product: ProductType,
+                     order_type: OrderType,
+                     transaction_type: TransactionType,
+                     price: float,
+                     include_positions: bool = False) -> Dict[str, Any]:
+        params = dict(
+            exchange=str(exchange),
+            symbol=symbol,
+            quantity="{qty}".format(qty=quantity),
+            product=str(product),
+            order=str(order_type),
+            transactionType=str(transaction_type),
+            price="{price}".format(price=price),
+            includePositions=include_positions
+        )  # type: Dict[str, Any]
+
         return self._post(self._routes.ORDER_MARGIN, params=params)
 
-    def get_basket_margin(self, orders: List[Dict[str, Any]]) -> Dict[str, Any]:
-        return self._post(self._routes.BASKET_MARGIN, params=orders)
+    def basket_margin(self,
+                      orders: List[Dict[str, Any]],
+                      include_positions: bool = False) -> Dict[str, Any]:
+        params = dict(
+            orders=orders,
+            includePositions=include_positions
+        )  # type: Dict[str, Any]
+
+        return self._post(self._routes.BASKET_MARGIN, params=params)
+
+
+    # Historical Data
+    def candle_data(self,
+                    exchange: Exchange,
+                    token: str,
+                    interval: str,
+                    from_timestamp: str,
+                    to_timestamp: str,
+                    oi: bool = False
+                    ) -> Dict[str, Any]:
+
+
+        url = f"{self._routes.get_candle_url()}/candle/{str(exchange)}/{token}/{interval}"
+
+        params = {
+            'from': from_timestamp,
+            'to': to_timestamp,
+            'oi': int(oi),
+        }
+
+        # Pass None for url_args, then params
+        return self._get(url, None, params)
 
     def _authenticate(self, checksum: str, request_token: str) -> Dict[str, str]:
         params = {
@@ -261,6 +342,7 @@ class ArrowClient(object):
 
     # HTTP Route Methods
     def _get(self, route: str, url_args: Optional[Dict[str, str]] = None, params: Any = None) -> Any:
+        print("route", params)
         return self._request("GET", route, url_args, params)
 
     def _post(self, route: str, url_args: Optional[Dict[str, str]] = None, params: Any = None,
@@ -302,7 +384,8 @@ class ArrowClient(object):
             json_data = params
         elif method in ["GET", "DELETE"] and params:
             query_params_final = params
-
+        print("url", url)
+        print("query_params", query_params_final)
         try:
             r = self.req_session.request(
                 method=method,

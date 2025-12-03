@@ -1,10 +1,3 @@
-"""
-Enhanced WebSocket Trading Client SDK
-
-Provides OrderStream and DataStream classes for real-time trading data
-with automatic reconnection, heartbeat monitoring, and subscription management.
-"""
-
 from typing import Optional, Dict, List, Callable, Any, Union
 from enum import Enum
 from dataclasses import dataclass, field
@@ -51,14 +44,15 @@ class ConnectionConfig:
     token: str
     debug: bool = False
 
-    # Reconnection settings
+    # Reconnection settings - matching JS implementation
     enable_reconnect: bool = True
     max_reconnect_attempts: int = 300
-    max_reconnect_delay: int = 10
+    max_reconnect_delay: int = 5  # Reduced from 10 to 5 seconds
+    immediate_reconnect_attempts: int = 3  # First 3 attempts are immediate
 
-    # Connection timeouts
-    read_timeout: int = 30
-    ping_interval: int = 30
+    # Connection timeouts - matching JS implementation
+    read_timeout: int = 5  # Reduced from 30 to 5 seconds
+    ping_interval: int = 3  # Reduced from 30 to 3 seconds
 
 
 @dataclass
@@ -112,6 +106,7 @@ class BaseSocket:
         self.reconnect_timer = None
         self.ping_timer = None
         self.read_timer = None
+        self.is_intentional_disconnect = False
 
         # Event handlers
         self.on_connect = None
@@ -154,6 +149,7 @@ class BaseSocket:
 
     def disconnect(self):
         """Disconnect WebSocket"""
+        self.is_intentional_disconnect = True
         if self.ws:
             self.ws.close()
 
@@ -211,8 +207,12 @@ class BaseSocket:
 
         logger.info(f"{self.__class__.__name__} disconnected")
 
-        if self.config.enable_reconnect:
+        # Only auto-reconnect if it wasn't intentional
+        if self.config.enable_reconnect and not self.is_intentional_disconnect:
             self._attempt_reconnection()
+
+        # Reset flag
+        self.is_intentional_disconnect = False
 
     def _start_ping_timer(self):
         """Start ping timer"""
@@ -242,6 +242,7 @@ class BaseSocket:
                 logger.warning("Read timeout, closing connection")
                 if self.ws:
                     self.ws.close()
+                self._clear_timers()
             else:
                 # Schedule next check
                 if self.is_connected:
@@ -261,31 +262,38 @@ class BaseSocket:
             self.read_timer.cancel()
 
     def _attempt_reconnection(self):
-        """Attempt to reconnect with exponential backoff"""
+        """Attempt to reconnect with exponential backoff (matching JS implementation)"""
         if self.current_reconnection_count > self.config.max_reconnect_attempts:
             logger.error("Exhausted reconnect retries")
             if self.on_no_reconnect:
                 self.on_no_reconnect()
             return
 
-        if self.current_reconnection_count > 0:
-            self.last_reconnect_interval = 2 ** self.current_reconnection_count
-        else:
-            self.last_reconnect_interval = 1
+        reconnect_delay = 0
 
-        if self.last_reconnect_interval > self.config.max_reconnect_delay:
-            self.last_reconnect_interval = self.config.max_reconnect_delay
+        # First few attempts: immediate reconnection (0 delay)
+        if self.current_reconnection_count < self.config.immediate_reconnect_attempts:
+            reconnect_delay = 0
+        # After immediate attempts: use exponential backoff
+        else:
+            backoff_attempt = self.current_reconnection_count - self.config.immediate_reconnect_attempts
+            reconnect_delay = min(2 ** backoff_attempt, self.config.max_reconnect_delay)
 
         self.current_reconnection_count += 1
 
         if self.on_reconnect:
-            self.on_reconnect(self.current_reconnection_count, self.last_reconnect_interval)
+            self.on_reconnect(self.current_reconnection_count, reconnect_delay)
 
-        logger.info(
-            f"Reconnecting in {self.last_reconnect_interval} seconds (attempt {self.current_reconnection_count})")
+        if self.reconnect_timer:
+            self.reconnect_timer.cancel()
 
-        self.reconnect_timer = threading.Timer(self.last_reconnect_interval, self.connect)
-        self.reconnect_timer.start()
+        if reconnect_delay == 0:
+            logger.info(f"reconnecting immediately (attempt {self.current_reconnection_count})...")
+            self.connect()
+        else:
+            logger.info(f"reconnect attempt {self.current_reconnection_count} after {reconnect_delay} seconds")
+            self.reconnect_timer = threading.Timer(reconnect_delay, self.connect)
+            self.reconnect_timer.start()
 
 
 class OrderStream(BaseSocket):
@@ -297,7 +305,6 @@ class OrderStream(BaseSocket):
 
     def _build_url(self) -> str:
         """Build order updates WebSocket URL"""
-        print(f"wss://order-updates.arrow.trade?appID={self.config.appID}&token={self.config.token}")
         return f"wss://order-updates.arrow.trade?appID={self.config.appID}&token={self.config.token}"
 
     def _on_message(self, ws, message):
@@ -402,7 +409,7 @@ class DataStream(BaseSocket):
             logger.error(f"Failed to send message: {e}")
 
     def _parse_binary(self, data: bytes) -> Optional[MarketTick]:
-        """Parse binary market data (matching JS implementation)"""
+        """Parse binary market data (matching JS implementation exactly)"""
         if len(data) < 17:
             return None
 
@@ -416,10 +423,14 @@ class DataStream(BaseSocket):
             # LTPC mode (17 bytes)
             if len(data) >= 17:
                 tick.close = self._big_endian_to_int(data[13:17])
-                tick.net_change = round(
-                    (((tick.ltp - tick.close) / tick.close) * 100) if tick.close != 0 else 0, 2
-                )
 
+                # Calculate net change
+                if tick.close != 0:
+                    tick.net_change = round(((tick.ltp - tick.close) / tick.close) * 100, 2)
+                else:
+                    tick.net_change = 0.0
+
+                # Set change flag
                 if tick.ltp > tick.close:
                     tick.change_flag = 43  # ASCII '+'
                 elif tick.ltp < tick.close:
@@ -446,10 +457,13 @@ class DataStream(BaseSocket):
                 tick.oi_day_high = self._big_endian_to_int(data[77:85])
                 tick.oi_day_low = self._big_endian_to_int(data[85:93])
 
-                tick.net_change = round(
-                    (((tick.ltp - tick.close) / tick.close) * 100) if tick.close != 0 else 0, 2
-                )
+                # Recalculate net change with close from quote data
+                if tick.close != 0:
+                    tick.net_change = round(((tick.ltp - tick.close) / tick.close) * 100, 2)
+                else:
+                    tick.net_change = 0.0
 
+                # Recalculate change flag
                 if tick.ltp > tick.close:
                     tick.change_flag = 43
                 elif tick.ltp < tick.close:
@@ -464,7 +478,7 @@ class DataStream(BaseSocket):
                 tick.lower_limit = self._big_endian_to_int(data[93:97])
                 tick.upper_limit = self._big_endian_to_int(data[97:101])
 
-                # Parse bids and asks (10 levels each)
+                # Parse bids and asks (10 levels total: 5 bids, 5 asks)
                 bids = []
                 asks = []
 
@@ -489,8 +503,9 @@ class DataStream(BaseSocket):
                 tick.asks = asks
                 tick.mode = DataMode.FULL.value
 
+            # Reset net change if close is 0
             if tick.close == 0:
-                tick.net_change = 0
+                tick.net_change = 0.0
 
             return tick
 
@@ -499,7 +514,7 @@ class DataStream(BaseSocket):
             return None
 
     def _big_endian_to_int(self, buffer: bytes) -> int:
-        """Convert big-endian bytes to integer (matching JS implementation)"""
+        """Convert big-endian bytes to integer (matching JS implementation exactly)"""
         value = 0
         length = len(buffer)
 
@@ -579,4 +594,3 @@ class ArrowStreams:
         self.status[stream] = status
         if self.config.debug:
             logger.debug(f"{stream} status: {status.value}")
-
