@@ -125,63 +125,6 @@ print(f"Current holdings: {holdings}")
 ### WebSocket Streaming
 
 ```python
-# from pyarrow import ArrowClient
-# from pyarrow.sockets import ArrowStreams
-# from pyarrow import Exchange, ProductType, OrderType, Variety, TransactionType, Retention
-# # Initialize client
-# client = ArrowClient(app_id="REDACTED")
-#
-# # # Method 1: Manual login (web-based)
-# # login_url = client.login_url()
-# # print(f"Visit: {login_url}")
-# # # After authorization, get request_token from callback
-# # client.login(request_token="token_from_callback", api_secret="your_secret")
-#
-# # Method 2: Automated login
-# # client.auto_login(
-# #     user_id="REDACTED",
-# #     password="REDACTED",
-# #     api_secret="REDACTED",
-# #     totp_secret="REDACTED"
-# # )
-#
-# client.set_token("REDACTED_JWT")
-# order_id = client.place_order(
-#     exchange=Exchange.NSE,
-#     symbol="RELIANCE-EQ",
-#     quantity=1,
-#     disclosed_quantity=0,
-#     product=ProductType.CNC,
-#     order_type=OrderType.LIMIT,
-#     variety=Variety.REGULAR,
-#     transaction_type=TransactionType.BUY,
-#     price=1450.0,
-#     validity=Retention.DAY
-# )
-#
-# print(order_id)
-#
-# orders = client.get_order_book()
-# for order in orders:
-#     print(f"Order {order['id']}: {order['orderStatus']}")
-#
-# # Get specific order details
-# order_details = client.get_order_details(order_id)
-# print(f"Order details: {order_details}")
-#
-# # Get trade book
-# trades = client.get_trade_book()
-# print(f"Trades: {trades}")
-#
-# # Get positions
-# positions = client.get_positions()
-# print(f"Positions: {positions}")
-#
-# # Get user holdings
-# holdings = client.get_holdings()
-# print(f"Current holdings: {holdings}")
-
-
 from pyarrow import ArrowStreams, DataMode
 
 # Initialize streams
@@ -472,13 +415,13 @@ user_details = client.get_user_details()
 ### Constants
 
 ```python
-from pyarrow.constants import (
+from pyarrow import (
     Exchange,          # NSE, BSE, NFO, BFO, MCX, etc.
-    OrderType,         # MARKET, LIMIT, SL, SLM
-    ProductType,       # DELIVERY, INTRADAY, MTF, etc.
-    TransactionType,   # BUY, SELL
-    Variety,           # NORMAL, AMO, BRACKET, COVER
-    Retention          # DAY, IOC, EOS
+    OrderType,         # MKT for Market, LMT for Limit, SL-LMT for Stoploss Limit, SL-MKT for Stoploss Market
+    ProductType,       # MIS for Intraday, CNC for Cash and Carry, NRML for Normal
+    TransactionType,   # B for Buy, S for Sell
+    Variety,           # REGULAR, COVER
+    Retention          # DAY, IOC,
 )
 ```
 
