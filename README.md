@@ -370,17 +370,18 @@ print(f"Basket margin: {basket_margin}")
 ### Historical Candle Data
 
 ```python
-from pyarrow.constants import Exchange
+from pyarrow import Exchange
 
 # Get historical candle data
 candles = client.candle_data(
     exchange=Exchange.NSE,
     token="3045",  # RELIANCE token
-    interval="5minute",  # Options: 1minute, 3minute, 5minute, 15minute, 30minute, 1hour, 1day
+    interval="5min",  # Options: min, 3min, 5min, 15min, 30min, hour, day
     from_timestamp="2024-01-01T09:15:00",
     to_timestamp="2024-01-01T15:30:00",
-    oi=False  # Set to True for OI data
+    oi=False
 )
+print(f"Candle data: {candles}")
 print(f"Candle data: {candles}")
 ```
 
@@ -407,219 +408,6 @@ limits = client.get_user_limits()
 
 # Get user details
 user_details = client.get_user_details()
-```
-
-### Expiry Information
-
-```python
-from pyarrow import ArrowClient
-
-# Get expiry dates for instruments
-nifty_expiries = ArrowClient.get_expiry_dates("NIFTY", "2024")
-print(f"NIFTY expiries: {nifty_expiries}")
-
-banknifty_expiries = ArrowClient.get_expiry_dates("BANKNIFTY", "2024")
-print(f"BANKNIFTY expiries: {banknifty_expiries}")
-```
-
----
-
-## 🔧 Configuration & Error Handling
-
-### Client Configuration
-
-```python
-client = ArrowClient(
-    app_id="your_app_id",
-    timeout=10,  # Request timeout in seconds (default: 10)
-    debug=True,  # Enable debug logging
-    root_url="https://edge.arrow.trade",  # Custom API endpoint (default)
-    pool_config=None  # Connection pool configuration (optional)
-)
-
-# Configure proxy
-client.proxies = {
-    'http': 'http://proxy.example.com:8080',
-    'https': 'https://proxy.example.com:8080'
-}
-
-# Disable SSL verification (not recommended for production)
-client.disable_ssl = True
-```
-
-### WebSocket Configuration
-
-```python
-from pyarrow.streams import ConnectionConfig, ArrowStreams
-
-# Create custom configuration
-config = ConnectionConfig(
-    appID="your_app_id",
-    token="your_token",
-    debug=True,
-    
-    # Reconnection settings
-    enable_reconnect=True,
-    max_reconnect_attempts=300,
-    max_reconnect_delay=5,  # Maximum delay between reconnection attempts (seconds)
-    immediate_reconnect_attempts=3,  # First 3 attempts are immediate
-    
-    # Connection timeouts
-    read_timeout=5,  # Read timeout (seconds)
-    ping_interval=3  # Ping interval (seconds)
-)
-
-# Initialize streams with custom config
-streams = ArrowStreams(
-    appID=config.appID,
-    token=config.token,
-    debug=config.debug
-)
-```
-
-### WebSocket Event Handlers
-
-```python
-# Data stream event handlers
-streams.data_stream.on_connect = lambda: print("Data stream connected")
-streams.data_stream.on_disconnect = lambda: print("Data stream disconnected")
-streams.data_stream.on_error = lambda error: print(f"Data stream error: {error}")
-streams.data_stream.on_close = lambda code, msg: print(f"Data stream closed: {code} - {msg}")
-streams.data_stream.on_reconnect = lambda attempt, delay: print(f"Reconnecting (attempt {attempt}) in {delay}s")
-streams.data_stream.on_no_reconnect = lambda: print("Max reconnection attempts exhausted")
-
-# Order stream event handlers
-streams.order_stream.on_connect = lambda: print("Order stream connected")
-streams.order_stream.on_disconnect = lambda: print("Order stream disconnected")
-streams.order_stream.on_error = lambda error: print(f"Order stream error: {error}")
-
-# Check connection status
-status = streams.get_status()
-print(f"Data stream: {status['data_stream']}")
-print(f"Order stream: {status['order_stream']}")
-
-# Check if connected
-if streams.data_stream.connected():
-    print("Data stream is connected")
-```
-
-### Error Handling
-
-```python
-import pyarrow.exceptions as ex
-
-try:
-    order_id = client.place_order(
-        exchange=Exchange.NSE,
-        symbol="RELIANCE",
-        quantity=10,
-        disclosed_quantity=0,
-        product=ProductType.DELIVERY,
-        order_type=OrderType.MARKET,
-        variety=Variety.NORMAL,
-        transaction_type=TransactionType.BUY,
-        price=0.0,
-        validity=Retention.DAY
-    )
-except ex.DataException as e:
-    print(f"Data error: {e}")
-except ex.GeneralException as e:
-    print(f"General error: {e}")
-except Exception as e:
-    print(f"Unexpected error: {e}")
-```
-
----
-
-## 📈 Sample Trading Strategy
-
-```python
-import time
-from pyarrow import ArrowClient
-from pyarrow.streams import ArrowStreams, DataMode
-from pyarrow.constants import *
-
-class SimpleStrategy:
-    def __init__(self, app_id, token):
-        self.client = ArrowClient(app_id)
-        self.client.set_token(token)
-        
-        self.streams = ArrowStreams(app_id, token, debug=True)
-        self.streams.data_stream.on_ticks = self.on_market_tick
-        self.streams.data_stream.on_connect = self.on_connect
-        
-        self.position = 0
-        self.target_symbol = "RELIANCE"
-        self.target_token = 3045
-        
-    def on_connect(self):
-        print("Connected! Subscribing to market data...")
-        self.streams.subscribe_market_data(DataMode.QUOTE, [self.target_token])
-        
-    def start(self):
-        # Connect to real-time feeds
-        self.streams.connect_data_stream()
-        print("Strategy started. Monitoring market data...")
-        
-    def on_market_tick(self, tick):
-        if tick.token == self.target_token:
-            print(f"Tick: {tick.token} LTP: {tick.ltp} Change: {tick.net_change}% Volume: {tick.volume}")
-            
-            # Simple momentum strategy
-            if tick.net_change > 2.0 and self.position == 0:
-                self.buy_signal(tick)
-            elif tick.net_change < -1.0 and self.position > 0:
-                self.sell_signal(tick)
-                
-    def buy_signal(self, tick):
-        try:
-            order_id = self.client.place_order(
-                exchange=Exchange.NSE,
-                symbol=self.target_symbol,
-                quantity=10,
-                disclosed_quantity=0,
-                product=ProductType.INTRADAY,
-                order_type=OrderType.MARKET,
-                variety=Variety.NORMAL,
-                transaction_type=TransactionType.BUY,
-                price=0.0,
-                validity=Retention.DAY
-            )
-            self.position = 10
-            print(f"BUY order placed: {order_id} at LTP: {tick.ltp}")
-        except Exception as e:
-            print(f"Buy order failed: {e}")
-            
-    def sell_signal(self, tick):
-        try:
-            order_id = self.client.place_order(
-                exchange=Exchange.NSE,
-                symbol=self.target_symbol,
-                quantity=self.position,
-                disclosed_quantity=0,
-                product=ProductType.INTRADAY,
-                order_type=OrderType.MARKET,
-                variety=Variety.NORMAL,
-                transaction_type=TransactionType.SELL,
-                price=0.0,
-                validity=Retention.DAY
-            )
-            self.position = 0
-            print(f"SELL order placed: {order_id} at LTP: {tick.ltp}")
-        except Exception as e:
-            print(f"Sell order failed: {e}")
-
-# Usage
-if __name__ == "__main__":
-    strategy = SimpleStrategy("your_app_id", "your_token")
-    strategy.start()
-    
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("Strategy stopped")
-        strategy.streams.disconnect_all()
 ```
 
 ---
@@ -701,14 +489,6 @@ from pyarrow.constants import (
 We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
 
 ### Development Setup
-
-```bash
-git clone https://github.com/arrowtech/pyarrow-client-python.git
-cd pyarrow-client-python
-pip install -e .[dev]
-pytest tests/
-```
-
 ---
 
 ## 📄 License
@@ -720,27 +500,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📞 Support
 
 - **Documentation**: [https://docs.arrow.trade](https://docs.arrow.trade)
-- **API Reference**: [https://api.arrow.trade/docs](https://api.arrow.trade/docs)
-- **Issues**: [GitHub Issues](https://github.com/arrowtech/pyarrow-client-python/issues)
 - **Support Email**: support@arrow.trade
 
 ---
 
 ## ⚠️ Disclaimer
 
-This software is for educational and informational purposes only. Trading in financial markets involves substantial risk and may not be suitable for all investors. Past performance is not indicative of future results. Please trade responsibly and consult with financial advisors before making investment decisions.
-
----
-
-## 🔄 Recent Changes
-
-### Key Updates in Latest Version:
-- Enhanced WebSocket reconnection logic with immediate reconnection for first 3 attempts
-- Improved timeout configurations (reduced read_timeout to 5s, ping_interval to 3s)
-- Added `cancel_all_orders()` method with multi-threaded bulk cancellation
-- Better error handling and logging throughout
-- MarketTick data structure now includes all fields from binary parsing
-- Thread-safe WebSocket implementation with proper timer management
+Trading in financial markets involves substantial risk and may not be suitable for all investors. Past performance is not indicative of future results. Please trade responsibly and consult with financial advisors before making investment decisions.
 
 ---
 
