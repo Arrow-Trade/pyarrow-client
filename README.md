@@ -78,19 +78,19 @@ client.auto_login(
 ### Basic Trading Operations
 
 ```python
-from pyarrow.constants import Exchange, OrderType, ProductType, TransactionType, Variety, Retention
+from pyarrow import Exchange, OrderType, ProductType, TransactionType, Variety, Retention
 
 # Place a buy order
 order_id = client.place_order(
     exchange=Exchange.NSE,
-    symbol="RELIANCE",
-    quantity=10,
+    symbol="RELIANCE-EQ",
+    quantity=1,
     disclosed_quantity=0,
-    product=ProductType.DELIVERY,
-    order_type=OrderType.MARKET,
-    variety=Variety.NORMAL,
+    product=ProductType.CNC,
+    order_type=OrderType.LIMIT,
+    variety=Variety.REGULAR,
     transaction_type=TransactionType.BUY,
-    price=0.0,
+    price=1450.0,
     validity=Retention.DAY
 )
 
@@ -125,7 +125,64 @@ print(f"Current holdings: {holdings}")
 ### WebSocket Streaming
 
 ```python
-from pyarrow.streams import ArrowStreams, DataMode
+# from pyarrow import ArrowClient
+# from pyarrow.sockets import ArrowStreams
+# from pyarrow import Exchange, ProductType, OrderType, Variety, TransactionType, Retention
+# # Initialize client
+# client = ArrowClient(app_id="REDACTED")
+#
+# # # Method 1: Manual login (web-based)
+# # login_url = client.login_url()
+# # print(f"Visit: {login_url}")
+# # # After authorization, get request_token from callback
+# # client.login(request_token="token_from_callback", api_secret="your_secret")
+#
+# # Method 2: Automated login
+# # client.auto_login(
+# #     user_id="REDACTED",
+# #     password="REDACTED",
+# #     api_secret="REDACTED",
+# #     totp_secret="REDACTED"
+# # )
+#
+# client.set_token("REDACTED_JWT")
+# order_id = client.place_order(
+#     exchange=Exchange.NSE,
+#     symbol="RELIANCE-EQ",
+#     quantity=1,
+#     disclosed_quantity=0,
+#     product=ProductType.CNC,
+#     order_type=OrderType.LIMIT,
+#     variety=Variety.REGULAR,
+#     transaction_type=TransactionType.BUY,
+#     price=1450.0,
+#     validity=Retention.DAY
+# )
+#
+# print(order_id)
+#
+# orders = client.get_order_book()
+# for order in orders:
+#     print(f"Order {order['id']}: {order['orderStatus']}")
+#
+# # Get specific order details
+# order_details = client.get_order_details(order_id)
+# print(f"Order details: {order_details}")
+#
+# # Get trade book
+# trades = client.get_trade_book()
+# print(f"Trades: {trades}")
+#
+# # Get positions
+# positions = client.get_positions()
+# print(f"Positions: {positions}")
+#
+# # Get user holdings
+# holdings = client.get_holdings()
+# print(f"Current holdings: {holdings}")
+
+
+from pyarrow import ArrowStreams, DataMode
 
 # Initialize streams
 streams = ArrowStreams(
@@ -137,7 +194,6 @@ streams = ArrowStreams(
 # Set up event handlers
 def on_tick(tick):
     print(f"Token: {tick.token} LTP: {tick.ltp} Change: {tick.net_change}%")
-    print(f"Mode: {tick.mode} Volume: {tick.volume}")
 
 def on_order_update(order):
     print(f"Order Update: {order}")
@@ -160,7 +216,7 @@ streams.connect_all()
 
 # Subscribe to market data
 token_list = [3045, 1594]  # NSE tokens for RELIANCE, INFY
-streams.subscribe_market_data(DataMode.LTPC, token_list)
+streams.subscribe_market_data(DataMode.QUOTE, token_list)
 
 # Keep connection alive
 import time
@@ -238,13 +294,13 @@ tick.asks            # List of 5 ask levels
 ```python
 # Modify existing order
 message = client.modify_order(
-    order_id="order_id_here",
+    order_id=order_id,
     exchange=Exchange.NSE,
-    quantity=15,  # Changed quantity
+    quantity=2,  # Changed quantity
     symbol="RELIANCE",
-    price=2500.0,  # New price
+    price=1500.0,  # New price
     disclosed_qty=0,
-    product=ProductType.INTRADAY,
+    product=ProductType.CNC,
     transaction_type=TransactionType.BUY,
     order_type=OrderType.LIMIT,
     validity=Retention.DAY,
@@ -272,12 +328,12 @@ for order_id, status, result in results:
 # Calculate margin for single order
 margin_info = client.order_margin(
     exchange=Exchange.NSE,
-    symbol="RELIANCE",
+    symbol="RELIANCE-EQ",
     quantity=100,
-    product=ProductType.INTRADAY,
+    product=ProductType.CNC,
     order_type=OrderType.LIMIT,
     transaction_type=TransactionType.BUY,
-    price=2500.0,
+    price=1500.0,
     include_positions=False
 )
 print(f"Required margin: {margin_info}")
@@ -286,21 +342,21 @@ print(f"Required margin: {margin_info}")
 orders = [
     {
         "exchange": "NSE",
-        "symbol": "RELIANCE",
-        "quantity": 100,
-        "product": "MIS",
-        "order": "LIMIT",
-        "transactionType": "BUY",
-        "price": 2500.0
+        "symbol": "RELIANCE-EQ",
+        "quantity": "100",
+        "product": ProductType.CNC,
+        "order": OrderType.LIMIT,
+        "transactionType": TransactionType.BUY,
+        "price": "1500.00",
     },
     {
         "exchange": "NSE",
-        "symbol": "INFY",
-        "quantity": 50,
-        "product": "MIS",
-        "order": "LIMIT",
-        "transactionType": "BUY",
-        "price": 1500.0
+        "symbol": "INFY-EQ",
+        "quantity": "50",
+        "product": ProductType.CNC,
+        "order": OrderType.LIMIT,
+        "transactionType": TransactionType.BUY,
+        "price": "1500.00",
     }
 ]
 basket_margin = client.basket_margin(orders, include_positions=False)

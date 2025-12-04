@@ -1,6 +1,7 @@
 LICENSE
 README.md
 pyproject.toml
+pyarrow/__init__.py
 pyarrow/__version__.py
 pyarrow/arrow_utils.py
 pyarrow/connect.py

@@ -342,7 +342,6 @@ class ArrowClient(object):
 
     # HTTP Route Methods
     def _get(self, route: str, url_args: Optional[Dict[str, str]] = None, params: Any = None) -> Any:
-        print("route", params)
         return self._request("GET", route, url_args, params)
 
     def _post(self, route: str, url_args: Optional[Dict[str, str]] = None, params: Any = None,
@@ -384,8 +383,6 @@ class ArrowClient(object):
             json_data = params
         elif method in ["GET", "DELETE"] and params:
             query_params_final = params
-        print("url", url)
-        print("query_params", query_params_final)
         try:
             r = self.req_session.request(
                 method=method,
