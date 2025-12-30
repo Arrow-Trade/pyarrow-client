@@ -37,7 +37,7 @@ class _PATHS(BaseEnum):
     HOLIDAYS_LIST = "/info/holidays"
     INDEX_LIST = "/info/index-list"
     OPTION_CHAIN = "/info/option-chain"
-    OPTION_CHAIN_SYMBOLS = "/info/option-chain-symbols"
+    OPTION_CHAIN_SYMBOLS = "/info/option-chain-symbols/all"
     GREEKS = "/info/greeks"
     QUOTE_DATA = "/info/quote/{mode}"
     QUOTES_DATA = "/info/quotes/{mode}"
@@ -107,6 +107,7 @@ class Exchange(BaseEnum):
     BSE = "BSE"
     BFO = "BFO"
     MCX = "MCX"
+    INDEX = "INDEX"
 
 
 class TransactionType(BaseEnum):
@@ -124,6 +125,11 @@ class OrderType(BaseEnum):
 class Retention(BaseEnum):
     DAY = "DAY"
     IOC = "IOC"
+
+class QuoteMode(BaseEnum):
+    FULL = "full"
+    OHLCV = "ohlcv"
+    LTP = "ltp"
 
 
 class ProductType(BaseEnum):

@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse, parse_qs
 import pyarrow.exceptions as ex
 import pyotp
+
+from pyarrow.constants import QuoteMode
 from pyarrow.arrow_utils import expiry_dates
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -237,6 +239,23 @@ class ArrowClient(object):
         return self._post(self._routes.BASKET_MARGIN, params=params)
 
 
+    # Market Data
+    def get_quote(self, mode: QuoteMode, symbol: str, exchange: Exchange):
+        data = dict(symbol=symbol, exchange=str(exchange))
+        return self._post(self._routes.QUOTE_DATA, url_args=dict(mode=str(mode)),params=data)
+
+    def get_quotes(self, mode: QuoteMode, symbols: list[tuple[str, Exchange]]):
+        data = [
+            dict(symbol=symbol, exchange=str(exchange))
+            for symbol, exchange in symbols
+        ]
+
+        return self._post(
+            self._routes.QUOTES_DATA,
+            url_args=dict(mode=str(mode)),
+            params=data  # <-- correct for your wrapper
+        )
+
     # Historical Data
     def candle_data(self,
                     exchange: Exchange,
@@ -466,9 +485,14 @@ class ArrowClient(object):
     def get_option_chain_symbols(self):
         return self._get(self._routes.OPTION_CHAIN_SYMBOLS)
 
-    def get_option_chain(self, params: Dict[str, str]) -> List[Dict[str, Any]]:
-        pass
-
+    def get_option_chain(self, underlying: str, exchange: Exchange, count: int, expiry: str) -> Any:
+        params = dict(
+            exchange=str(exchange),
+            underlying=underlying,
+            count=str(count),
+            expiry=expiry
+        )
+        return self._post(self._routes.OPTION_CHAIN, params=params)
 
     # Properties
     @property

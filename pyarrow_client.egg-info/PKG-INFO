@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: pyarrow-client
-Version: 1.1.4
+Version: 1.1.6
 Summary: Python SDK for Arrow Trading API
 Author-email: Abhishek Jain <abhishek.jain@irage.in>, Shubham Jain <shubham.j@irage.in>, Parth Bhandari <parth.b@irage.in>
 License: MIT
@@ -141,63 +141,6 @@ print(f"Current holdings: {holdings}")
 ### WebSocket Streaming
 
 ```python
-# from pyarrow import ArrowClient
-# from pyarrow.sockets import ArrowStreams
-# from pyarrow import Exchange, ProductType, OrderType, Variety, TransactionType, Retention
-# # Initialize client
-# client = ArrowClient(app_id="REDACTED")
-#
-# # # Method 1: Manual login (web-based)
-# # login_url = client.login_url()
-# # print(f"Visit: {login_url}")
-# # # After authorization, get request_token from callback
-# # client.login(request_token="token_from_callback", api_secret="your_secret")
-#
-# # Method 2: Automated login
-# # client.auto_login(
-# #     user_id="REDACTED",
-# #     password="REDACTED",
-# #     api_secret="REDACTED",
-# #     totp_secret="REDACTED"
-# # )
-#
-# client.set_token("REDACTED_JWT")
-# order_id = client.place_order(
-#     exchange=Exchange.NSE,
-#     symbol="RELIANCE-EQ",
-#     quantity=1,
-#     disclosed_quantity=0,
-#     product=ProductType.CNC,
-#     order_type=OrderType.LIMIT,
-#     variety=Variety.REGULAR,
-#     transaction_type=TransactionType.BUY,
-#     price=1450.0,
-#     validity=Retention.DAY
-# )
-#
-# print(order_id)
-#
-# orders = client.get_order_book()
-# for order in orders:
-#     print(f"Order {order['id']}: {order['orderStatus']}")
-#
-# # Get specific order details
-# order_details = client.get_order_details(order_id)
-# print(f"Order details: {order_details}")
-#
-# # Get trade book
-# trades = client.get_trade_book()
-# print(f"Trades: {trades}")
-#
-# # Get positions
-# positions = client.get_positions()
-# print(f"Positions: {positions}")
-#
-# # Get user holdings
-# holdings = client.get_holdings()
-# print(f"Current holdings: {holdings}")
-
-
 from pyarrow import ArrowStreams, DataMode
 
 # Initialize streams
@@ -398,7 +341,50 @@ candles = client.candle_data(
     oi=False
 )
 print(f"Candle data: {candles}")
-print(f"Candle data: {candles}")
+```
+
+### Quote Data
+
+```python
+from pyarrow import QuoteMode, Exchange
+
+# Single Instrument Quotes
+
+# LTP Mode - Get last traded price
+quote = client.get_quote(QuoteMode.LTP, "RELIANCE-EQ", Exchange.NSE)
+print(f"LTP Quote: {quote}")
+
+# OHLCV Mode - Get OHLC and volume data
+quote = client.get_quote(QuoteMode.OHLCV, "RELIANCE-EQ", Exchange.NSE)
+print(f"OHLCV Quote: {quote}")
+
+# FULL Mode - Get complete market depth
+quote = client.get_quote(QuoteMode.FULL, "RELIANCE-EQ", Exchange.NSE)
+print(f"Full Quote: {quote}")
+
+
+# Multiple Instrument Quotes
+
+# LTP Mode for multiple symbols
+quotes = client.get_quotes(
+    QuoteMode.LTP, 
+    symbols=[("RELIANCE-EQ", Exchange.NSE), ("IDEA-EQ", Exchange.BSE)]
+)
+print(f"Multiple LTP Quotes: {quotes}")
+
+# OHLCV Mode for multiple symbols
+quotes = client.get_quotes(
+    QuoteMode.OHLCV,
+    symbols=[("RELIANCE-EQ", Exchange.NSE), ("IDEA-EQ", Exchange.BSE)]
+)
+print(f"Multiple OHLCV Quotes: {quotes}")
+
+# FULL Mode for multiple symbols
+quotes = client.get_quotes(
+    QuoteMode.FULL,
+    symbols=[("RELIANCE-EQ", Exchange.NSE), ("IDEA-EQ", Exchange.BSE)]
+)
+print(f"Multiple Full Quotes: {quotes}")
 ```
 
 ### Instruments & Market Info
@@ -454,6 +440,8 @@ user_details = client.get_user_details()
 | `order_margin(**params)` | Calculate single order margin | `Dict` |
 | `basket_margin(orders, include_positions)` | Calculate basket margin | `Dict` |
 | `candle_data(**params)` | Get historical candle data | `Dict` |
+| `get_quote(mode, symbol, exchange)` | Get single instrument quote | `Dict` |
+| `get_quotes(mode, symbols)` | Get multiple instrument quotes | `List[Dict]` |
 | `get_instruments()` | Get all tradable instruments | `Any` |
 | `get_holidays()` | Get market holidays | `Dict` |
 | `get_index_list()` | Get index listings | `List[Dict]` |
@@ -488,13 +476,15 @@ user_details = client.get_user_details()
 ### Constants
 
 ```python
-from pyarrow.constants import (
+from pyarrow import (
     Exchange,          # NSE, BSE, NFO, BFO, MCX, etc.
-    OrderType,         # MARKET, LIMIT, SL, SLM
-    ProductType,       # DELIVERY, INTRADAY, MTF, etc.
-    TransactionType,   # BUY, SELL
-    Variety,           # NORMAL, AMO, BRACKET, COVER
-    Retention          # DAY, IOC, EOS
+    OrderType,         # MKT for Market, LMT for Limit, SL-LMT for Stoploss Limit, SL-MKT for Stoploss Market
+    ProductType,       # MIS for Intraday, CNC for Cash and Carry, NRML for Normal
+    TransactionType,   # B for Buy, S for Sell
+    Variety,           # REGULAR, COVER
+    Retention,         # DAY, IOC
+    QuoteMode,         # LTP, OHLCV, FULL
+    DataMode,          # LTPC, QUOTE, FULL
 )
 ```
 
@@ -505,6 +495,19 @@ from pyarrow.constants import (
 We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
 
 ### Development Setup
+
+```bash
+# Clone repository
+git clone https://github.com/arrow-trade/pyarrow-client.git
+cd pyarrow-client
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run tests
+pytest tests/
+```
+
 ---
 
 ## 📄 License
@@ -517,6 +520,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - **Documentation**: [https://docs.arrow.trade](https://docs.arrow.trade)
 - **Support Email**: support@arrow.trade
+- **GitHub Issues**: [Report bugs or request features](https://github.com/arrow-trade/pyarrow-client/issues)
 
 ---
 

@@ -325,7 +325,50 @@ candles = client.candle_data(
     oi=False
 )
 print(f"Candle data: {candles}")
-print(f"Candle data: {candles}")
+```
+
+### Quote Data
+
+```python
+from pyarrow import QuoteMode, Exchange
+
+# Single Instrument Quotes
+
+# LTP Mode - Get last traded price
+quote = client.get_quote(QuoteMode.LTP, "RELIANCE-EQ", Exchange.NSE)
+print(f"LTP Quote: {quote}")
+
+# OHLCV Mode - Get OHLC and volume data
+quote = client.get_quote(QuoteMode.OHLCV, "RELIANCE-EQ", Exchange.NSE)
+print(f"OHLCV Quote: {quote}")
+
+# FULL Mode - Get complete market depth
+quote = client.get_quote(QuoteMode.FULL, "RELIANCE-EQ", Exchange.NSE)
+print(f"Full Quote: {quote}")
+
+
+# Multiple Instrument Quotes
+
+# LTP Mode for multiple symbols
+quotes = client.get_quotes(
+    QuoteMode.LTP, 
+    symbols=[("RELIANCE-EQ", Exchange.NSE), ("IDEA-EQ", Exchange.BSE)]
+)
+print(f"Multiple LTP Quotes: {quotes}")
+
+# OHLCV Mode for multiple symbols
+quotes = client.get_quotes(
+    QuoteMode.OHLCV,
+    symbols=[("RELIANCE-EQ", Exchange.NSE), ("IDEA-EQ", Exchange.BSE)]
+)
+print(f"Multiple OHLCV Quotes: {quotes}")
+
+# FULL Mode for multiple symbols
+quotes = client.get_quotes(
+    QuoteMode.FULL,
+    symbols=[("RELIANCE-EQ", Exchange.NSE), ("IDEA-EQ", Exchange.BSE)]
+)
+print(f"Multiple Full Quotes: {quotes}")
 ```
 
 ### Instruments & Market Info
@@ -381,6 +424,8 @@ user_details = client.get_user_details()
 | `order_margin(**params)` | Calculate single order margin | `Dict` |
 | `basket_margin(orders, include_positions)` | Calculate basket margin | `Dict` |
 | `candle_data(**params)` | Get historical candle data | `Dict` |
+| `get_quote(mode, symbol, exchange)` | Get single instrument quote | `Dict` |
+| `get_quotes(mode, symbols)` | Get multiple instrument quotes | `List[Dict]` |
 | `get_instruments()` | Get all tradable instruments | `Any` |
 | `get_holidays()` | Get market holidays | `Dict` |
 | `get_index_list()` | Get index listings | `List[Dict]` |
@@ -421,7 +466,9 @@ from pyarrow import (
     ProductType,       # MIS for Intraday, CNC for Cash and Carry, NRML for Normal
     TransactionType,   # B for Buy, S for Sell
     Variety,           # REGULAR, COVER
-    Retention          # DAY, IOC,
+    Retention,         # DAY, IOC
+    QuoteMode,         # LTP, OHLCV, FULL
+    DataMode,          # LTPC, QUOTE, FULL
 )
 ```
 
@@ -432,6 +479,19 @@ from pyarrow import (
 We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
 
 ### Development Setup
+
+```bash
+# Clone repository
+git clone https://github.com/arrow-trade/pyarrow-client.git
+cd pyarrow-client
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run tests
+pytest tests/
+```
+
 ---
 
 ## 📄 License
@@ -444,6 +504,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - **Documentation**: [https://docs.arrow.trade](https://docs.arrow.trade)
 - **Support Email**: support@arrow.trade
+- **GitHub Issues**: [Report bugs or request features](https://github.com/arrow-trade/pyarrow-client/issues)
 
 ---
 
