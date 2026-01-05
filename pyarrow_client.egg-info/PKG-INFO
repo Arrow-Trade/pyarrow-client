@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: pyarrow-client
-Version: 1.1.6
+Version: 1.1.7
 Summary: Python SDK for Arrow Trading API
 Author-email: Abhishek Jain <abhishek.jain@irage.in>, Shubham Jain <shubham.j@irage.in>, Parth Bhandari <parth.b@irage.in>
 License: MIT

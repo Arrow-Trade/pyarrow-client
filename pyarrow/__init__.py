@@ -26,6 +26,7 @@ from pyarrow.constants import (
     Retention,
     TransactionType,
     Variety,
+    QuoteMode
 )
 
 # Define what's available when someone does "from pyarrow import *"
