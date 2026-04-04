@@ -1,1 +1,68 @@
-.idea
+# JetBrains
+.idea/
+
+# VS Code (local settings; remove this line if you share workspace config)
+.vscode/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# Packaging / build outputs
+dist/
+build/
+*.egg
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+cover/
+
+# Type checkers / linters (if you add them later)
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment & secrets (never commit)
+.env
+.env.*
+!.env.example
+
+# Local / generated data (customize if you need these in git)
+/data.json
+
+# Examples — often contain credentials; keep out of git (and PyPI)
+# PyPI: only `pyarrow_client` is packaged; this folder is not in the wheel/sdist by default.
+example/

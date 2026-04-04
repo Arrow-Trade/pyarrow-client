@@ -1,5 +1,5 @@
 # Import version metadata
-from pyarrow.__version__ import (
+from pyarrow_client.__version__ import (
     __title__,
     __version__,
     __description__,
@@ -13,13 +13,13 @@ from pyarrow.__version__ import (
 )
 
 # Import main client class
-from pyarrow.connect import ArrowClient
+from pyarrow_client.connect import ArrowClient
 
 # Import streaming classes
-from pyarrow.sockets import ArrowStreams, DataMode, OrderStream, DataStream
+from pyarrow_client.sockets import ArrowStreams, DataMode, OrderStream, DataStream
 
 # Import enums and constants
-from pyarrow.constants import (
+from pyarrow_client.constants import (
     Exchange,
     OrderType,
     ProductType,
@@ -29,7 +29,7 @@ from pyarrow.constants import (
     QuoteMode
 )
 
-# Define what's available when someone does "from pyarrow import *"
+# Define what's available when someone does "from pyarrow_client import *"
 __all__ = [
     'ArrowClient',
     'ArrowStreams',

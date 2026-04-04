@@ -44,9 +44,11 @@
 pip install pyarrow-client
 ```
 
+The distribution name uses a hyphen (`pyarrow-client`); in Python code, import the package as `pyarrow_client` (identifiers cannot contain `-`).
+
 **Requirements:**
 - Python 3.7+
-- `requests`, `websocket-client`, `pyotp`, `pyarrow`, `dateutil`
+- `requests`, `websocket-client`, `pyotp`, `python-dateutil`, `urllib3`
 
 ---
 
@@ -55,7 +57,7 @@ pip install pyarrow-client
 ### Authentication
 
 ```python
-from pyarrow import ArrowClient
+from pyarrow_client import ArrowClient
 
 # Initialize client
 client = ArrowClient(app_id="your_app_id")
@@ -66,21 +68,36 @@ print(f"Visit: {login_url}")
 # After authorization, get request_token from callback
 client.login(request_token="token_from_callback", api_secret="your_secret")
 
-# Method 2: Automated login
+# Get the token of the day
+print(client.get_token())
+
+# Set this token which is valid for the entire day if you want to run the file as as script or multiple times
+print(client.set_token())
+
+
+# Method 2: Automated login (Unique feature)
 client.auto_login(
     user_id="your_user_id",
     password="your_password", 
     api_secret="your_api_secret",
     totp_secret="REDACTED"
 )
+
+# Get the token of the day
+print(client.get_token())
+
+# Set this token which is valid for the entire day if you want to run the file as as script or multiple times
+print(client.set_token())
 ```
 
-### Basic Trading Operations
+## Trading Operations
+
+### Order Placement
 
 ```python
-from pyarrow import Exchange, OrderType, ProductType, TransactionType, Variety, Retention
+from pyarrow_client import Exchange, OrderType, ProductType, TransactionType, Variety, Retention
 
-# Place a buy order
+# Place a buy LIMIT order
 order_id = client.place_order(
     exchange=Exchange.NSE,
     symbol="RELIANCE-EQ",
@@ -95,6 +112,48 @@ order_id = client.place_order(
 )
 
 print(f"Order placed: {order_id}")
+
+# Place a Sell MKT order
+
+order_id = client.place_order(
+    exchange=Exchange.NSE,
+    symbol="RELIANCE-EQ",
+    quantity=1,
+    disclosed_quantity=0,
+    product=ProductType.CNC,
+    order_type=OrderType.MARKET,
+    variety=Variety.REGULAR,
+    transaction_type=TransactionType.SELL,
+    price=1450.0,
+    validity=Retention.DAY
+)
+
+# Modify an order
+message = client.modify_order(
+    order_id="your_order_id",
+    exchange=Exchange.NSE,
+    quantity=2,  # Changed quantity
+    symbol="RELIANCE",
+    price=1500.0,  # New price
+    disclosed_qty=0,
+    product=ProductType.CNC,
+    transaction_type=TransactionType.BUY,
+    order_type=OrderType.LIMIT,
+    validity=Retention.DAY,
+    remarks="Modified order"
+)
+
+print(message)
+
+# Cancel an Order
+message = client.cancel_order(order_id="order_id_here")
+print(message)
+
+# Cancel all Open Orders
+results = client.cancel_all_orders()
+for order_id, status, result in results:
+    print(f"Order {order_id}: {status} - {result}")s
+
 
 # Get order book
 orders = client.get_order_book()
@@ -125,7 +184,7 @@ print(f"Current holdings: {holdings}")
 ### WebSocket Streaming
 
 ```python
-from pyarrow import ArrowStreams, DataMode
+from pyarrow_client import ArrowStreams, DataMode
 
 # Initialize streams
 streams = ArrowStreams(
@@ -313,7 +372,7 @@ print(f"Basket margin: {basket_margin}")
 ### Historical Candle Data
 
 ```python
-from pyarrow import Exchange
+from pyarrow_client import Exchange
 
 # Get historical candle data
 candles = client.candle_data(
@@ -330,7 +389,7 @@ print(f"Candle data: {candles}")
 ### Quote Data
 
 ```python
-from pyarrow import QuoteMode, Exchange
+from pyarrow_client import QuoteMode, Exchange
 
 # Single Instrument Quotes
 
@@ -460,7 +519,7 @@ user_details = client.get_user_details()
 ### Constants
 
 ```python
-from pyarrow import (
+from pyarrow_client import (
     Exchange,          # NSE, BSE, NFO, BFO, MCX, etc.
     OrderType,         # MKT for Market, LMT for Limit, SL-LMT for Stoploss Limit, SL-MKT for Stoploss Market
     ProductType,       # MIS for Intraday, CNC for Cash and Carry, NRML for Normal

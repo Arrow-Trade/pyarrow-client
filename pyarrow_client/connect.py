@@ -4,23 +4,23 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse, parse_qs
-import pyarrow.exceptions as ex
+import pyarrow_client.exceptions as ex
 import pyotp
 
-from pyarrow.constants import QuoteMode
-from pyarrow.arrow_utils import expiry_dates
+from pyarrow_client.constants import QuoteMode
+from pyarrow_client.arrow_utils import expiry_dates
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pyarrow_client.arrow_utils import stock_options
 
 
-
-from pyarrow.__version__ import __title__, __version__
-from pyarrow.constants import Exchange, OrderType, ProductType, Retention, TransactionType, Variety
+from pyarrow_client.__version__ import __title__, __version__
+from pyarrow_client.constants import Exchange, OrderType, ProductType, Retention, TransactionType, Variety
 
 import dateutil.parser
 import requests
 import urllib3
 
-import pyarrow.constants as constants
+import pyarrow_client.constants as constants
 
 log = logging.getLogger(__name__)
 
@@ -382,7 +382,7 @@ class ArrowClient(object):
 
         # Headers
         headers = {
-            "User-Agent": f"pyarrow/{__version__}",
+            "User-Agent": f"pyarrow-client/{__version__}",
             "appID": self.app_id,
             "Content-Type": "application/json"  # Add explicit content type
         }
@@ -493,6 +493,11 @@ class ArrowClient(object):
             expiry=expiry
         )
         return self._post(self._routes.OPTION_CHAIN, params=params)
+
+    # Utility by Arrow
+
+    def get_stock_option_symbols(self):
+        return stock_options["symbols"]
 
     # Properties
     @property
