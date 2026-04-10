@@ -41,6 +41,8 @@ pip-delete-this-directory.txt
 .coverage
 .coverage.*
 htmlcov/
+coverage.xml
+*.cover
 .tox/
 .nox/
 .hypothesis/

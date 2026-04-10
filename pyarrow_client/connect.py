@@ -427,7 +427,7 @@ class ArrowClient(object):
             try:
                 data = r.json()
             except ValueError:
-                raise ex.DataException(f"Invalid JSON response: {r.content!r}")
+                raise ex.DataException(f"Invalid JSON response: {r.content!r}", method=method, url=url)
 
             if isinstance(data, dict):
                 if data.get(constants.STATUS) == constants.ERROR or data.get(constants.ERROR_CODE):
@@ -435,7 +435,7 @@ class ArrowClient(object):
                         # TODO: handle session expiry
                         pass
                     exp = getattr(ex, str(data.get(constants.ERROR_CODE)), ex.GeneralException)
-                    raise exp(data.get(constants.ERROR_MESSAGE, "Unknown Error"), code=r.status_code)
+                    raise exp(data.get(constants.ERROR_MESSAGE, "Unknown Error"), code=r.status_code, method=method, url=url)
                 return data.get("data", data)
             return data
 
@@ -444,7 +444,7 @@ class ArrowClient(object):
             return r.content
 
         # Unknown response type
-        raise ex.DataException(f"Unknown Content-Type ({content_type}) Response: {r.content[:1000]!r}")
+        raise ex.DataException(f"Unknown Content-Type ({content_type}) Response: {r.content[:1000]!r}", method=method, url=url)
 
     # Data Parsing Methods
     def _format_order_response(self, data: Union[Dict[str, Any], List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
