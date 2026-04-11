@@ -13,12 +13,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pyarrow_client.arrow_utils import stock_options
 
 
-from pyarrow_client.__version__ import __title__, __version__
+from pyarrow_client.__version__ import __version__
 from pyarrow_client.constants import Exchange, OrderType, ProductType, Retention, TransactionType, Variety
 
 import dateutil.parser
 import requests
-import urllib3
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 import pyarrow_client.constants as constants
 
@@ -38,7 +39,6 @@ class ArrowClient(object):
             root_url: Optional[str] = None,
             pool_config: Optional[Dict[str, Any]] = None) -> None:
         self.app_id = app_id
-        self.req_session = requests.Session()
         self.timeout = timeout or self.DEFAULT_TIMEOUT
         self.debug = debug
         self.root_url = root_url or self.DEFAULT_ROOT_URL
@@ -47,6 +47,28 @@ class ArrowClient(object):
 
         self._token: Optional[str] = None
         self._routes = constants.Routes(root_url=self.root_url)
+
+        pool_config = pool_config or {}
+        # Retry only on connection errors (stale keep-alive connections).
+        # read=False and raise_on_status=False ensure we never silently retry
+        # non-idempotent requests (e.g. place_order) on read/status failures.
+        _retry = Retry(
+            total=pool_config.get("max_retries", 1),
+            connect=pool_config.get("max_retries", 1),
+            read=False,
+            redirect=3,
+            raise_on_status=False,
+            backoff_factor=pool_config.get("backoff_factor", 0.2),
+        )
+        _adapter = HTTPAdapter(
+            max_retries=_retry,
+            pool_connections=pool_config.get("pool_connections", 2),
+            pool_maxsize=pool_config.get("pool_maxsize", 10),
+            pool_block=pool_config.get("pool_block", False),
+        )
+        self.req_session = requests.Session()
+        self.req_session.mount("https://", _adapter)
+        self.req_session.mount("http://", _adapter)
 
     def place_order(self,
             exchange: Exchange,
@@ -419,6 +441,21 @@ class ArrowClient(object):
 
         if self.debug:
             log.debug(f"Response: {method} {url}\n{r.content[:1000]!r}")
+
+        # Catch infrastructure-level errors (nginx 502/503/504, load balancer
+        # timeouts, etc.) before inspecting content-type. These come back as
+        # text/html and would otherwise raise a confusing DataException.
+        # Headers are always logged at WARNING so the caller can identify which
+        # layer (CDN, WAF, ALB, nginx) generated the error — if not in nginx
+        # logs it means the response came from a proxy sitting in front of it.
+        if r.status_code >= 500:
+            log.warning(
+                f"HTTP {r.status_code} {method} {url} — response headers: {dict(r.headers)}"
+            )
+            raise ex.GeneralException(
+                f"HTTP {r.status_code} from server: {r.content[:200]!r}",
+                code=r.status_code,
+            )
 
         content_type = r.headers.get("content-type", "")
 

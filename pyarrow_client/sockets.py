@@ -10,8 +10,6 @@ import websocket
 from urllib.parse import urlencode
 import ssl
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -24,6 +22,7 @@ class MessageType(Enum):
 
 class DataMode(Enum):
     """Market data streaming modes"""
+    LTP = "ltp"
     LTPC = "ltpc"
     QUOTE = "quote"
     FULL = "full"
@@ -327,6 +326,7 @@ class DataStream(BaseSocket):
     def __init__(self, config: ConnectionConfig):
         super().__init__(config)
         self.subscriptions = {
+            DataMode.LTP.value: {},
             DataMode.LTPC.value: {},
             DataMode.QUOTE.value: {},
             DataMode.FULL.value: {}
@@ -342,7 +342,7 @@ class DataStream(BaseSocket):
         super()._on_open(ws)
 
         # Resubscribe to all existing subscriptions
-        for mode in [DataMode.LTPC, DataMode.QUOTE, DataMode.FULL]:
+        for mode in [DataMode.LTP, DataMode.LTPC, DataMode.QUOTE, DataMode.FULL]:
             tokens = list(self.subscriptions[mode.value].keys())
             if tokens:
                 self.subscribe(mode, tokens)
@@ -419,6 +419,9 @@ class DataStream(BaseSocket):
                 token=self._big_endian_to_int(data[0:4]),
                 ltp=self._big_endian_to_int(data[4:8])
             )
+
+            if len(data) == 13:
+                tick.mode = DataMode.LTP.value
 
             # LTPC mode (17 bytes)
             if len(data) >= 17:
