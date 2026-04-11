@@ -1,5 +1,5 @@
 __title__ = 'pyarrow-client'  # Match the PyPI package name
-__version__ = '1.2.0'
+__version__ = '1.3.1'   
 __description__ = 'Official Python Client Library for Arrow Trading API'
 __url__ = 'https://arrow.trade'
 __download_url__ = 'https://pypi.org/project/py-arrow/'
@@ -7,4 +7,4 @@ __license__ = 'MIT'
 __author__ = 'Abhishek Jain'
 __author_email__ = 'abhishek.jain@irage.in'
 __maintainer__ = 'Arrow Trading Team'
-__maintainer_email__ = 'support@arrow.trade'
+__maintainer_email__ = 'support@arrow.trade'    
