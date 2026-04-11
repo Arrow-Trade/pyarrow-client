@@ -2000,7 +2000,7 @@ class HFTDataStream(BaseSocket):
 
     Packet Types:
         - PKT_TYPE_LTP (1): 40 bytes - Last traded price data
-        - PKT_TYPE_FULL (2): 192 bytes - Full market depth data
+        - PKT_TYPE_FULL (2): 196 bytes - Full market depth data
         - PKT_TYPE_RESPONSE (99): 540 bytes - Server response to requests
 
     Exchange Segments:
@@ -2032,7 +2032,7 @@ class HFTDataStream(BaseSocket):
 
     # Packet sizes (in bytes)
     PKT_SIZE_LTP = 40
-    PKT_SIZE_FULL = 192
+    PKT_SIZE_FULL = 196
     PKT_SIZE_RESPONSE = 540
 
     # Exchange segment constants
@@ -2093,7 +2093,7 @@ class HFTDataStream(BaseSocket):
                     if ltp_tick and self.on_ltp_tick:
                         self.on_ltp_tick(ltp_tick)
 
-                # PKT_TYPE_FULL (2) - 192 bytes
+                # PKT_TYPE_FULL (2) - 196 bytes
                 elif pkt_type == self.PKT_TYPE_FULL and len(message) >= self.PKT_SIZE_FULL:
                     full_tick = self._parse_full_packet(message)
                     if full_tick and self.on_full_tick:
@@ -2396,11 +2396,11 @@ class HFTDataStream(BaseSocket):
             return None
 
     def _parse_full_packet(self, data: bytes) -> Optional[Dict]:
-        """Parse Full market depth packet (192 bytes).
+        """Parse Full market depth packet (196 bytes).
 
         Full Packet Structure:
             Offset  Size  Type         Field        Description
-            0       2     int16        size         Packet size in bytes (192)
+            0       2     int16        size         Packet size in bytes (196)
             2       1     uint8        pkt_type     2 (PKT_TYPE_FULL)
             3       1     uint8        exch_seg     Exchange segment
             4       4     int32        token        Symbol/Token ID
@@ -2423,10 +2423,10 @@ class HFTDataStream(BaseSocket):
             132     20    int32[5]     ask_size     Best 5 ask quantities
             152     10    uint16[5]    bid_ord      Bid order counts (levels 1-5)
             162     10    uint16[5]    ask_ord      Ask order counts (levels 1-5)
-            172     4     int32        oi           Open interest
-            176     8     uint64       ts           Server timestamp (epoch ns)
-            184     4     uint32       atv          Ask Traded Volume
-            188     4     uint32       btv          Buy Traded Volume
+            172     8     uint64        oi           Open interest
+            180     8     uint64       ts           Server timestamp (epoch ns)
+            188     4     uint32       atv          Ask Traded Volume
+            192     4     uint32       btv          Buy Traded Volume
         """
         try:
             tick = {
@@ -2453,10 +2453,10 @@ class HFTDataStream(BaseSocket):
                 'ask_size': list(struct.unpack('<5i', data[132:152])),
                 'bid_ord': list(struct.unpack('<5H', data[152:162])),
                 'ask_ord': list(struct.unpack('<5H', data[162:172])),
-                'oi': struct.unpack('<i', data[172:176])[0],
-                'ts': struct.unpack('<Q', data[176:184])[0],
-                'atv': struct.unpack('<I', data[184:188])[0],
-                'btv': struct.unpack('<I', data[188:192])[0]
+                'oi': struct.unpack('<Q', data[172:180])[0],
+                'ts': struct.unpack('<Q', data[180:188])[0],
+                'atv': struct.unpack('<I', data[188:192])[0],
+                'btv': struct.unpack('<I', data[192:196])[0]
             }
             return tick
         except Exception as e:
