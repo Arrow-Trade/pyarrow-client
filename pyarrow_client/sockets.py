@@ -410,7 +410,10 @@ class DataStream(BaseSocket):
 
     def _parse_binary(self, data: bytes) -> Optional[MarketTick]:
         """Parse binary market data (matching JS implementation exactly)"""
-        if len(data) < 17:
+        # LTP-only packets are 13 bytes; LTPC and larger modes need at least 17.
+        if len(data) < 13:
+            return None
+        if 13 < len(data) < 17:
             return None
 
         try:

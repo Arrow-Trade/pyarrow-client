@@ -28,6 +28,20 @@ def test_data_stream_init():
     assert "appID=test" in url
     assert "token=token" in url
 
+def test_data_stream_parse_ltp_13_byte():
+    """LTP mode uses 13-byte binary ticks; must not be rejected (e.g. index tokens)."""
+    config = ConnectionConfig(appID="test", token="token")
+    stream = DataStream(config)
+    token, ltp = 26000, 19_500_00  # example values in wire format (often paise)
+    payload = struct.pack(">II", token, ltp) + b"\x00" * 5
+    assert len(payload) == 13
+    tick = stream._parse_binary(payload)
+    assert tick is not None
+    assert tick.token == token
+    assert tick.ltp == ltp
+    assert tick.mode == DataMode.LTP.value
+
+
 def test_data_stream_subscribe():
     config = ConnectionConfig(appID="test", token="token")
     stream = DataStream(config)
