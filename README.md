@@ -533,6 +533,56 @@ from pyarrow_client import (
 
 ---
 
+## MCP server (Cursor & other MCP clients)
+
+An MCP server ships in this repo as **`pyarrow_mcp`**. It exposes curated SDK docs (`pyarrow-sdk://reference/...` resources) and introspection tools (`sdk_version`, `inspect_class`, `enum_members`, …) so models use **real** method names and enum values instead of guessing. It does **not** call Arrow APIs or trade on your behalf.
+
+**Install (Python 3.10+ for the MCP extra):**
+
+```bash
+pip install "pyarrow-client[mcp]"   # when installed from PyPI
+# or from a clone:
+pip install -e ".[mcp]"
+```
+
+**Run (stdio):**
+
+```bash
+python -m pyarrow_mcp
+# or, after install:
+pyarrow-mcp
+```
+
+In an interactive shell the process **blocks on stdin** until an MCP host sends JSON-RPC (you will see a short notice on stderr). That is expected. **Use a single Ctrl+C** to quit when testing manually; hammering Ctrl+C can still trip a CPython stdio shutdown bug.
+
+**Cursor** — add to your MCP config (e.g. user `mcp.json`), adjusting `command` to your venv Python if needed:
+
+```json
+{
+  "mcpServers": {
+    "pyarrow-client-sdk": {
+      "command": "pyarrow-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+Alternative when the console script is not on `PATH`:
+
+```json
+{
+  "mcpServers": {
+    "pyarrow-client-sdk": {
+      "command": "/path/to/venv/bin/python",
+      "args": ["-m", "pyarrow_mcp"]
+    }
+  }
+}
+```
+
+---
+
 ## 🤝 Contributing
 
 We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.

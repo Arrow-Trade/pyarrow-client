@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse, parse_qs
+
 import pyarrow_client.exceptions as ex
 import pyotp
 
@@ -81,7 +82,9 @@ class ArrowClient(object):
             transaction_type: TransactionType,
             price: float,
             validity: Retention,
-            remarks: Optional[str] = None) -> str:
+            remarks: Optional[str] = None,
+            mpp: bool = False) -> str:
+
         params = dict(
             exchange=str(exchange),
             symbol=symbol,
@@ -92,7 +95,8 @@ class ArrowClient(object):
             transactionType=str(transaction_type),
             price="{price}".format(price=price),
             validity=str(validity),
-            remarks=remarks or ""
+            remarks=remarks or "",
+            mpp=mpp,
         )  # type: Dict[str, Any]
         response = self._post(
             self._routes.PLACE_ORDER,
@@ -148,6 +152,7 @@ class ArrowClient(object):
             order_type: OrderType,
             validity: Retention,
             remarks: Optional[str] = None,
+            mpp: bool = False,
     ) -> str:
         """Modify an existing order."""
         params = {
@@ -161,6 +166,7 @@ class ArrowClient(object):
             "price": str(price),
             "validity": str(validity),
             "remarks": remarks or "",
+            "mpp": mpp,
         }
 
         response = self._patch(

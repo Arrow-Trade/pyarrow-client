@@ -11,5 +11,10 @@ pyarrow_client/sockets.py
 pyarrow_client.egg-info/PKG-INFO
 pyarrow_client.egg-info/SOURCES.txt
 pyarrow_client.egg-info/dependency_links.txt
+pyarrow_client.egg-info/entry_points.txt
 pyarrow_client.egg-info/requires.txt
 pyarrow_client.egg-info/top_level.txt
+pyarrow_mcp/__init__.py
+pyarrow_mcp/__main__.py
+pyarrow_mcp/reference_docs.py
+pyarrow_mcp/server.py

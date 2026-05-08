@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: pyarrow-client
-Version: 1.3.1
+Version: 1.3.2
 Summary: Python SDK for Arrow Trading API
 Author-email: Abhishek Jain <abhishek.jain@irage.in>, Shubham Jain <shubham.j@irage.in>, Parth Bhandari <parth.b@irage.in>
 License-Expression: MIT
@@ -12,6 +12,8 @@ Requires-Dist: websocket-client>=1.0.0
 Requires-Dist: pyotp>=2.6.0
 Requires-Dist: python-dateutil>=2.8.0
 Requires-Dist: urllib3>=1.26.0
+Provides-Extra: mcp
+Requires-Dist: mcp>=1.2.0; extra == "mcp"
 Dynamic: license-file
 
 # PyArrow – Official Python Client for Arrow Trading API
@@ -545,6 +547,54 @@ from pyarrow_client import (
     QuoteMode,         # LTP, OHLCV, FULL
     DataMode,          # LTPC, QUOTE, FULL
 )
+```
+
+---
+
+## MCP server (Cursor & other MCP clients)
+
+An MCP server ships in this repo as **`pyarrow_mcp`**. It exposes curated SDK docs (`pyarrow-sdk://reference/...` resources) and introspection tools (`sdk_version`, `inspect_class`, `enum_members`, …) so models use **real** method names and enum values instead of guessing. It does **not** call Arrow APIs or trade on your behalf.
+
+**Install (Python 3.10+ for the MCP extra):**
+
+```bash
+pip install "pyarrow-client[mcp]"   # when installed from PyPI
+# or from a clone:
+pip install -e ".[mcp]"
+```
+
+**Run (stdio):**
+
+```bash
+python -m pyarrow_mcp
+# or, after install:
+pyarrow-mcp
+```
+
+**Cursor** — add to your MCP config (e.g. user `mcp.json`), adjusting `command` to your venv Python if needed:
+
+```json
+{
+  "mcpServers": {
+    "pyarrow-client-sdk": {
+      "command": "pyarrow-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+Alternative when the console script is not on `PATH`:
+
+```json
+{
+  "mcpServers": {
+    "pyarrow-client-sdk": {
+      "command": "/path/to/venv/bin/python",
+      "args": ["-m", "pyarrow_mcp"]
+    }
+  }
+}
 ```
 
 ---

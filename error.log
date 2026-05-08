@@ -1,0 +1,7 @@
+Error: HTTPSConnectionPool(host='edge.arrow.trade', port=443): Read timed out. (read timeout=10)
+Error: 
+╭─ Arrow API Error ────────────────────────────────────────
+│ Status  : 500 (Internal Server Error)
+│ Message : HTTP 500 from server: b'{"message":"error getting positions","requestID":"01KPCTVZE87FXCVT3FVB3H1KMG","status":"failure","errorCode":"InternalServerError"}'
+╰──────────────────────────────────────────────────────────
+Error: HTTPSConnectionPool(host='edge.arrow.trade', port=443): Read timed out. (read timeout=10)
