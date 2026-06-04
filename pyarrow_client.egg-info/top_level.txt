@@ -1,2 +1,1 @@
 pyarrow_client
-pyarrow_mcp

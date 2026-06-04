@@ -28,6 +28,64 @@ def test_data_stream_init():
     assert "appID=test" in url
     assert "token=token" in url
 
+def _build_full_packet(depth_offset: int) -> bytes:
+    """Build a FULL-mode wire packet (241 or 249 bytes)."""
+    buf = bytearray(depth_offset + 10 * 14)
+    struct.pack_into(">I", buf, 0, 3045)
+    struct.pack_into(">I", buf, 4, 97780)
+    struct.pack_into(">I", buf, 13, 10)
+    struct.pack_into(">I", buf, 17, 14950)
+    struct.pack_into(">Q", buf, 21, 1000)
+    struct.pack_into(">Q", buf, 29, 2000)
+    struct.pack_into(">I", buf, 37, 14800)
+    struct.pack_into(">I", buf, 41, 15200)
+    struct.pack_into(">I", buf, 45, 14700)
+    struct.pack_into(">I", buf, 49, 14600)
+    struct.pack_into(">Q", buf, 53, 50000)
+    struct.pack_into(">I", buf, 61, 123456)
+    struct.pack_into(">I", buf, 65, 123457)
+    struct.pack_into(">Q", buf, 69, 100000)
+    struct.pack_into(">Q", buf, 77, 110000)
+    struct.pack_into(">Q", buf, 85, 90000)
+    struct.pack_into(">I", buf, 93, 87345)
+    struct.pack_into(">I", buf, 97, 106745)
+    for i in range(10):
+        off = depth_offset + i * 14
+        struct.pack_into(">Q", buf, off, 100 + i)
+        struct.pack_into(">I", buf, off + 8, 97750 + i)
+        struct.pack_into(">H", buf, off + 12, 5)
+    return bytes(buf)
+
+
+def test_data_stream_parse_full_241_byte():
+    config = ConnectionConfig(appID="test", token="token")
+    stream = DataStream(config)
+    payload = _build_full_packet(depth_offset=101)
+    assert len(payload) == 241
+    tick = stream._parse_binary(payload)
+    assert tick is not None
+    assert tick.mode == DataMode.FULL.value
+    assert len(tick.bids) == 5
+    assert len(tick.asks) == 5
+    assert tick.bids[0]["price"] == 97750
+    assert tick.lower_limit == 87345
+    assert tick.upper_limit == 106745
+
+
+def test_data_stream_parse_full_249_byte():
+    """Live ds.arrow.trade FULL ticks are 249 bytes (8 reserved bytes before depth)."""
+    config = ConnectionConfig(appID="test", token="token")
+    stream = DataStream(config)
+    payload = _build_full_packet(depth_offset=109)
+    assert len(payload) == 249
+    tick = stream._parse_binary(payload)
+    assert tick is not None
+    assert tick.mode == DataMode.FULL.value
+    assert len(tick.bids) == 5
+    assert tick.bids[0]["price"] == 97750
+    assert tick.asks[0]["price"] == 97755
+
+
 def test_data_stream_parse_ltp_13_byte():
     """LTP mode uses 13-byte binary ticks; must not be rejected (e.g. index tokens)."""
     config = ConnectionConfig(appID="test", token="token")

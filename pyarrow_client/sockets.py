@@ -479,35 +479,37 @@ class DataStream(BaseSocket):
 
                 tick.mode = DataMode.QUOTE.value
 
-            # Full mode (241 bytes)
-            if len(data) == 241:
+            # Full mode: 241 bytes (legacy) or 249 bytes (8 reserved bytes before depth)
+            if len(data) >= 241:
                 tick.lower_limit = self._big_endian_to_int(data[93:97])
                 tick.upper_limit = self._big_endian_to_int(data[97:101])
 
-                # Parse bids and asks (10 levels total: 5 bids, 5 asks)
-                bids = []
-                asks = []
+                depth_offset = 109 if len(data) >= 249 else 101
+                depth_end = depth_offset + 10 * 14
+                if len(data) >= depth_end:
+                    bids = []
+                    asks = []
 
-                for i in range(10):
-                    offset = 101 + i * 14
-                    quantity = self._big_endian_to_int(data[offset:offset + 8])
-                    price = self._big_endian_to_int(data[offset + 8:offset + 12])
-                    orders = self._big_endian_to_int(data[offset + 12:offset + 14])
+                    for i in range(10):
+                        offset = depth_offset + i * 14
+                        quantity = self._big_endian_to_int(data[offset:offset + 8])
+                        price = self._big_endian_to_int(data[offset + 8:offset + 12])
+                        orders = self._big_endian_to_int(data[offset + 12:offset + 14])
 
-                    level_data = {
-                        'price': price,
-                        'quantity': quantity,
-                        'orders': orders
-                    }
+                        level_data = {
+                            'price': price,
+                            'quantity': quantity,
+                            'orders': orders
+                        }
 
-                    if i >= 5:
-                        asks.append(level_data)
-                    else:
-                        bids.append(level_data)
+                        if i >= 5:
+                            asks.append(level_data)
+                        else:
+                            bids.append(level_data)
 
-                tick.bids = bids
-                tick.asks = asks
-                tick.mode = DataMode.FULL.value
+                    tick.bids = bids
+                    tick.asks = asks
+                    tick.mode = DataMode.FULL.value
 
             # Reset net change if close is 0
             if tick.close == 0:
