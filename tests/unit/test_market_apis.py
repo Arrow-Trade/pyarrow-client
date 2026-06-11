@@ -116,7 +116,7 @@ def test_get_option_chain(arrow_client):
     }
     responses.add(responses.POST, url, json=mock_response, status=200)
     
-    data = arrow_client.get_option_chain("NIFTY", Exchange.NFO, 10, "2023-01-25")
+    data = arrow_client.get_option_chain("NIFTY", Exchange.INDEX, 10, "03-APR-2024")
     assert len(data) == 1
     assert data[0]["strikePrice"] == 18000
 

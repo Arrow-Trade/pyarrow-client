@@ -48,7 +48,15 @@ from pyarrow_client.__version__ import (
 from pyarrow_client.connect import ArrowClient
 
 # Import streaming classes
-from pyarrow_client.sockets import ArrowStreams, DataMode, OrderStream, DataStream
+from pyarrow_client.sockets import (
+    ArrowStreams,
+    ConnectionConfig,
+    DataMode,
+    DataStream,
+    HFTDataStream,
+    MarketTick,
+    OrderStream,
+)
 
 # Import enums and constants
 from pyarrow_client.constants import (
@@ -65,12 +73,16 @@ from pyarrow_client.constants import (
 __all__ = [
     'ArrowClient',
     'ArrowStreams',
+    'ConnectionConfig',
     'DataMode',
-    'OrderStream',
     'DataStream',
     'Exchange',
+    'HFTDataStream',
+    'MarketTick',
+    'OrderStream',
     'OrderType',
     'ProductType',
+    'QuoteMode',
     'Retention',
     'TransactionType',
     'Variety',

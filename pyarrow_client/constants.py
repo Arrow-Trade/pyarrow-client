@@ -120,6 +120,10 @@ class OrderType(BaseEnum):
     LIMIT = "LMT"
     STOP_LOSS_LIMIT = "SL-LMT"
     STOP_LOSS_MARKET = "SL-MKT"
+    # Aliases matching common documentation naming
+    MKT = MARKET
+    SL_LMT = STOP_LOSS_LIMIT
+    SL_MKT = STOP_LOSS_MARKET
 
 
 class Retention(BaseEnum):

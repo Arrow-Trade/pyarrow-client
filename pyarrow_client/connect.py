@@ -83,7 +83,8 @@ class ArrowClient(object):
             price: float,
             validity: Retention,
             remarks: Optional[str] = None,
-            mpp: bool = False) -> str:
+            mpp: bool = False,
+            trigger_price: Optional[float] = None) -> str:
 
         params = dict(
             exchange=str(exchange),
@@ -98,6 +99,8 @@ class ArrowClient(object):
             remarks=remarks or "",
             mpp=mpp,
         )  # type: Dict[str, Any]
+        if trigger_price is not None:
+            params["triggerPrice"] = "{price}".format(price=trigger_price)
         response = self._post(
             self._routes.PLACE_ORDER,
             url_args={"variety": str(variety)},
@@ -135,9 +138,9 @@ class ArrowClient(object):
 
 
     def get_positions(self) -> List[Dict[str, Any]]:
-        """Get all user trades."""
+        """Get all user positions."""
         data = self._get(self._routes.GET_USER_POSITIONS)
-        return self._format_trades_response(data)
+        return self._format_orders_response(data)
 
     def modify_order(
             self,
@@ -153,6 +156,7 @@ class ArrowClient(object):
             validity: Retention,
             remarks: Optional[str] = None,
             mpp: bool = False,
+            trigger_price: Optional[float] = None,
     ) -> str:
         """Modify an existing order."""
         params = {
@@ -168,6 +172,8 @@ class ArrowClient(object):
             "remarks": remarks or "",
             "mpp": mpp,
         }
+        if trigger_price is not None:
+            params["triggerPrice"] = str(trigger_price)
 
         response = self._patch(
             self._routes.UPDATE_ORDER_BY_ID,
@@ -223,14 +229,14 @@ class ArrowClient(object):
         return self._get(self._routes.USER_DETAILS)
 
     # User Holdings
-    def get_holdings(self) -> Dict[str, Any]:
+    def get_holdings(self) -> List[Dict[str, Any]]:
         return self._get(self._routes.GET_USER_HOLDINGS)
 
     @staticmethod
-    def get_expiry_dates(symbol: str, year: str):
-        return expiry_dates[symbol][year]
+    def get_expiry_dates(symbol: str, year: Union[str, int]):
+        return expiry_dates[symbol][str(year)]
 
-    def get_user_limits(self) -> List[Dict[str, Any]]:
+    def get_user_limits(self) -> Dict[str, Any]:
         return self._get(self._routes.GET_USER_LIMITS)
 
     # Margin Routes
@@ -310,6 +316,7 @@ class ArrowClient(object):
         params = {
             "appID": self.app_id,
             "token": request_token,
+            "checkSum": checksum,
             "checksum": checksum,
         }
         response = self._post("https://api.arrow.trade/auth/app/authenticate-token", params=params)
@@ -323,12 +330,30 @@ class ArrowClient(object):
     def login_url(self) -> str:
         return f"{self._routes.get_home_url()}?appID={self.app_id}"
 
-    def login(self, request_token: str, api_secret: str) -> Dict[str, str]:
-        checksum = self._generate_checksum(request_token, api_secret)
+    def login(
+            self,
+            request_token: str,
+            api_secret: Optional[str] = None,
+            app_secret: Optional[str] = None) -> Dict[str, str]:
+        secret = api_secret or app_secret
+        if not secret:
+            raise TypeError("login() missing required argument: 'api_secret' (or 'app_secret')")
+        checksum = self._generate_checksum(request_token, secret)
         response = self._authenticate(checksum, request_token)
         return response
 
-    def auto_login(self, user_id: str, password: str, api_secret: str, totp_secret: str) -> Dict[str, str]:
+    def auto_login(
+            self,
+            user_id: str,
+            password: str,
+            api_secret: Optional[str] = None,
+            totp_secret: Optional[str] = None,
+            app_secret: Optional[str] = None) -> Dict[str, str]:
+        secret = api_secret or app_secret
+        if not secret:
+            raise TypeError("auto_login() missing required argument: 'api_secret' (or 'app_secret')")
+        if not totp_secret:
+            raise TypeError("auto_login() missing required argument: 'totp_secret'")
         login_url = self.DEFAULT_LOGIN_URL
         login_payload = {
             "userID": user_id,
@@ -376,7 +401,7 @@ class ArrowClient(object):
             raise
 
         try:
-            response = self.login(request_token=request_token, api_secret=api_secret)
+            response = self.login(request_token=request_token, api_secret=secret)
             self.set_token(response["token"])
             return response
         except Exception as e:
@@ -530,12 +555,15 @@ class ArrowClient(object):
 
     def get_option_chain(self, underlying: str, exchange: Exchange, count: int, expiry: str) -> Any:
         params = dict(
+            underlying=str(underlying),
             exchange=str(exchange),
-            underlying=underlying,
             count=str(count),
             expiry=expiry
         )
         return self._post(self._routes.OPTION_CHAIN, params=params)
+
+    def get_greeks(self, tokens: List[str]) -> Any:
+        return self._post(self._routes.GREEKS, params=[int(t) for t in tokens])
 
     # Utility by Arrow
 

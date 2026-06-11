@@ -41,26 +41,38 @@ def test_get_user_limits(arrow_client):
     url = f"{arrow_client.root_url}/user/limits"
     mock_response = {
         "status": "success",
-        "data": [{"segment": "ALL", "availableMargin": 100000.0}]
+        "data": {"allocations": [], "margin": {"allocated": "100000.0"}}
     }
     responses.add(responses.GET, url, json=mock_response, status=200)
     
     limits = arrow_client.get_user_limits()
-    assert len(limits) == 1
-    assert limits[0]["availableMargin"] == 100000.0
+    assert limits["margin"]["allocated"] == "100000.0"
 
 @responses.activate
 def test_get_positions(arrow_client):
     url = f"{arrow_client.root_url}/user/positions"
     mock_response = {
         "status": "success",
-        "data": [{"tradingSymbol": "NIFTY", "netQuantity": 50, "realizedPnl": 1500.0}]
+        "data": [{
+            "userID": "TEST",
+            "token": "1398464",
+            "exchange": "MCXFO",
+            "symbol": "GOLDPETAL30JUN26F",
+            "segment": "FO",
+            "product": "M",
+            "qty": "0",
+            "avgPrice": "0",
+            "dayBuyQty": "1",
+            "daySellQty": "1",
+            "ltp": "0",
+        }]
     }
     responses.add(responses.GET, url, json=mock_response, status=200)
     
     positions = arrow_client.get_positions()
     assert len(positions) == 1
-    assert positions[0]["realizedPnl"] == 1500.0
+    assert positions[0]["symbol"] == "GOLDPETAL30JUN26F"
+    assert positions[0]["exchange"] == "MCXFO"
 
 @responses.activate
 def test_get_trade_book(arrow_client):

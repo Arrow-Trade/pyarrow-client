@@ -28,6 +28,21 @@ def test_login(arrow_client):
     assert arrow_client.get_token() == "valid_token"
 
 @responses.activate
+def test_login_app_secret_alias(arrow_client):
+    url = "https://api.arrow.trade/auth/app/authenticate-token"
+    mock_response = {
+        "status": "success",
+        "data": {"token": "valid_token"}
+    }
+    responses.add(responses.POST, url, json=mock_response, status=200)
+
+    response = arrow_client.login(request_token="req_token", app_secret="secret")
+    assert response["token"] == "valid_token"
+    body = responses.calls[0].request.body
+    assert b"checkSum" in body
+    assert b"checksum" in body
+
+@responses.activate
 def test_login_failure(arrow_client):
     url = "https://api.arrow.trade/auth/app/authenticate-token"
     mock_response = {
