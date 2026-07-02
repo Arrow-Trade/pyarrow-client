@@ -1,7 +1,0 @@
-websocket-client
-Twisted
-autobahn
-requests
-urllib3
-setuptools
-six

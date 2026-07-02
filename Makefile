@@ -1,7 +1,9 @@
+PYTHON ?= python3
+
 upload:
 	rm -rf dist/*
-	python -m build
-	twine upload dist/*
+	$(PYTHON) -m build
+	$(PYTHON) -m twine upload dist/*
 	
 clean:
 	rm -rf dist/*

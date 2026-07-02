@@ -9,6 +9,7 @@ import struct
 import websocket
 from urllib.parse import urlencode
 import ssl
+import zstandard as zstd
 
 logger = logging.getLogger(__name__)
 
@@ -479,7 +480,7 @@ class DataStream(BaseSocket):
 
                 tick.mode = DataMode.QUOTE.value
 
-            # Full mode: 241 bytes (legacy) or 249 bytes (8 reserved bytes before depth)
+            # Full mode: 249 bytes (8 reserved bytes before depth); 241-byte legacy packets still parsed
             if len(data) >= 241:
                 tick.lower_limit = self._big_endian_to_int(data[93:97])
                 tick.upper_limit = self._big_endian_to_int(data[97:101])
@@ -563,7 +564,8 @@ class HFTDataStream(BaseSocket):
 
     Rate Limits:
         - Maximum 100 requests per second per connection
-        - Maximum 4096 symbols per subscription
+        - Maximum 512 symbols per subscription request
+        - Maximum 1024 subscribed symbols per connection
         - Maximum request size: 16KB
 
     Note: Currently supports LTP only for NSEFO and NSECM, and full for others.
@@ -594,10 +596,68 @@ class HFTDataStream(BaseSocket):
         self.on_ltp_tick = None
         self.on_full_tick = None
         self.on_response = None
+        self._zstd = True
+        self._zdec = zstd.ZstdDecompressor()
+
+    def disconnect(self):
+        """Disconnect WebSocket and release zstd decoder."""
+        self._zdec = None
+        super().disconnect()
 
     def _build_url(self) -> str:
         """Build HFT market data WebSocket URL"""
-        return f"wss://socket.arrow.trade?appID={self.config.appID}&token={self.config.token}"
+        return (
+            f"wss://socket.arrow.trade?appID={self.config.appID}"
+            f"&token={self.config.token}&zstd=1"
+        )
+
+    def _decode_hft_payload(self, payload: bytes) -> bytes:
+        if not self._zstd or self._zdec is None:
+            return payload
+        return self._zdec.decompress(payload)
+
+    @staticmethod
+    def _hft_packet_meta(payload: bytes):
+        """Inspect the next frame in payload. Response frames use a 4-byte uint32
+        size (540) with pkt_type at offset 4; LTP/full ticks use int16 size with
+        pkt_type at offset 2."""
+        if len(payload) >= HFTDataStream.PKT_SIZE_RESPONSE:
+            size = struct.unpack('<I', payload[0:4])[0]
+            if size == HFTDataStream.PKT_SIZE_RESPONSE and payload[4] == HFTDataStream.PKT_TYPE_RESPONSE:
+                return HFTDataStream.PKT_SIZE_RESPONSE, HFTDataStream.PKT_TYPE_RESPONSE, True
+        if len(payload) >= HFTDataStream.PKT_SIZE_LTP:
+            size = struct.unpack('<h', payload[0:2])[0]
+            if size == HFTDataStream.PKT_SIZE_LTP and payload[2] == HFTDataStream.PKT_TYPE_LTP:
+                return HFTDataStream.PKT_SIZE_LTP, HFTDataStream.PKT_TYPE_LTP, True
+        if len(payload) >= HFTDataStream.PKT_SIZE_FULL:
+            size = struct.unpack('<h', payload[0:2])[0]
+            if size == HFTDataStream.PKT_SIZE_FULL and payload[2] == HFTDataStream.PKT_TYPE_FULL:
+                return HFTDataStream.PKT_SIZE_FULL, HFTDataStream.PKT_TYPE_FULL, True
+        return 0, 0, False
+
+    def _dispatch_hft_payload(self, payload: bytes):
+        while len(payload) > 0:
+            n, pkt, ok = self._hft_packet_meta(payload)
+            if not ok:
+                logger.warning(f"hft unknown packet: {len(payload)} trailing bytes")
+                return
+            if len(payload) < n:
+                logger.warning(f"hft incomplete frame: want {n} bytes, got {len(payload)}")
+                return
+            frame = payload[:n]
+            payload = payload[n:]
+            if pkt == self.PKT_TYPE_RESPONSE:
+                response = self._parse_response(frame)
+                if response and self.on_response:
+                    self.on_response(response)
+            elif pkt == self.PKT_TYPE_LTP:
+                ltp_tick = self._parse_ltp_packet(frame)
+                if ltp_tick and self.on_ltp_tick:
+                    self.on_ltp_tick(ltp_tick)
+            elif pkt == self.PKT_TYPE_FULL:
+                full_tick = self._parse_full_packet(frame)
+                if full_tick and self.on_full_tick:
+                    self.on_full_tick(full_tick)
 
     def _on_open(self, ws):
         """Handle connection open and resubscribe"""
@@ -614,35 +674,12 @@ class HFTDataStream(BaseSocket):
         super()._on_message(ws, message)
 
         try:
-            # Handle binary data only
-            if isinstance(message, bytes) and len(message) >= 2:
-                # Read packet size (first 2 bytes, little-endian int16)
-                size = struct.unpack('<h', message[0:2])[0]
-
-                if len(message) < size:
-                    logger.warning(f"Incomplete packet: expected {size} bytes, got {len(message)}")
-                    return
-
-                pkt_type = message[2]
-
-                # PKT_TYPE_RESPONSE (99) - 540 bytes
-                if pkt_type == self.PKT_TYPE_RESPONSE and len(message) >= self.PKT_SIZE_RESPONSE:
-                    response = self._parse_response(message)
-                    if response and self.on_response:
-                        self.on_response(response)
-
-                # PKT_TYPE_LTP (1) - 40 bytes
-                elif pkt_type == self.PKT_TYPE_LTP and len(message) >= self.PKT_SIZE_LTP:
-                    ltp_tick = self._parse_ltp_packet(message)
-                    if ltp_tick and self.on_ltp_tick:
-                        self.on_ltp_tick(ltp_tick)
-
-                # PKT_TYPE_FULL (2) - 196 bytes
-                elif pkt_type == self.PKT_TYPE_FULL and len(message) >= self.PKT_SIZE_FULL:
-                    full_tick = self._parse_full_packet(message)
-                    if full_tick and self.on_full_tick:
-                        self.on_full_tick(full_tick)
-
+            if not isinstance(message, bytes) or len(message) == 0:
+                return
+            payload = self._decode_hft_payload(message)
+            self._dispatch_hft_payload(payload)
+        except zstd.ZstdError as e:
+            logger.error(f"hft decompress: {e}")
         except Exception as e:
             logger.error(f"Failed to parse HFT market data: {e}")
 

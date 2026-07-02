@@ -150,6 +150,9 @@ def test_hft_data_stream_init():
     stream = HFTDataStream(config)
     url = stream._build_url()
     assert "wss://socket.arrow.trade" in url
+    assert "zstd=1" in url
+    assert stream._zstd is True
+    assert stream._zdec is not None
 
 def test_hft_data_stream_subscribe():
     config = ConnectionConfig(appID="test", token="token")
@@ -178,3 +181,47 @@ def test_arrow_streams_manager():
     assert status["order_stream"] == "disconnected"
     assert status["data_stream"] == "disconnected"
     assert status["hft_data_stream"] == "disconnected"
+
+
+def _make_ltp_frame(token=5042, ltp=10000):
+    data = bytearray(HFTDataStream.PKT_SIZE_LTP)
+    struct.pack_into('<h', data, 0, HFTDataStream.PKT_SIZE_LTP)
+    data[2] = HFTDataStream.PKT_TYPE_LTP
+    data[3] = HFTDataStream.EXCH_NSE_CM
+    struct.pack_into('<i', data, 4, token)
+    struct.pack_into('<i', data, 8, ltp)
+    return bytes(data)
+
+
+def test_hft_packet_meta():
+    ltp = _make_ltp_frame()
+    n, pkt, ok = HFTDataStream._hft_packet_meta(ltp)
+    assert ok
+    assert n == HFTDataStream.PKT_SIZE_LTP
+    assert pkt == HFTDataStream.PKT_TYPE_LTP
+
+
+def test_hft_dispatch_multiple_packets():
+    config = ConnectionConfig(appID="test", token="token")
+    stream = HFTDataStream(config)
+    ticks = []
+    stream.on_ltp_tick = ticks.append
+    stream._dispatch_hft_payload(_make_ltp_frame(token=1) + _make_ltp_frame(token=2))
+    assert len(ticks) == 2
+    assert ticks[0]["token"] == 1
+    assert ticks[1]["token"] == 2
+
+
+def test_hft_zstd_decompress_roundtrip():
+    import zstandard as zstd
+
+    config = ConnectionConfig(appID="test", token="token")
+    stream = HFTDataStream(config)
+    raw = _make_ltp_frame(token=99, ltp=12345)
+    compressed = zstd.ZstdCompressor().compress(raw)
+    ticks = []
+    stream.on_ltp_tick = ticks.append
+    stream._on_message(None, compressed)
+    assert len(ticks) == 1
+    assert ticks[0]["token"] == 99
+    assert ticks[0]["ltp"] == 12345

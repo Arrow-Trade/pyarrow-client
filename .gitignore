@@ -62,9 +62,10 @@ dmypy.json
 .env.*
 !.env.example
 
-# Local / generated data (customize if you need these in git)
-/data.json
+# Local logs & generated runtime data
+*.log
+data.json
 
-# Examples — often contain credentials; keep out of git (and PyPI)
-# PyPI: only `pyarrow_client` is packaged; this folder is not in the wheel/sdist by default.
+# Local examples, scripts, and internal tooling (not part of the published SDK)
 example/
+mcp-server/
