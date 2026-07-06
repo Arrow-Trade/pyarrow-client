@@ -135,9 +135,7 @@ class BaseSocket:
             # Start connection in a thread
             self.ws_thread = threading.Thread(
                 target=self.ws.run_forever,
-                kwargs={
-                    'sslopt': {"cert_reqs": ssl.CERT_NONE} if url.startswith('wss') else {}
-                }
+                kwargs=self._run_forever_kwargs(url),
             )
             self.ws_thread.daemon = True
             self.ws_thread.start()
@@ -161,6 +159,17 @@ class BaseSocket:
         """Build WebSocket URL - to be implemented by subclasses"""
         raise NotImplementedError
 
+    def _uses_text_pong(self) -> bool:
+        """Whether to send plain-text PONG heartbeats on this socket."""
+        return True
+
+    def _run_forever_kwargs(self, url: str) -> dict:
+        """Extra kwargs passed to WebSocketApp.run_forever()."""
+        kwargs = {}
+        if url.startswith('wss'):
+            kwargs['sslopt'] = {"cert_reqs": ssl.CERT_NONE}
+        return kwargs
+
     def _on_open(self, ws):
         """Handle WebSocket open event"""
         self.is_connected = True
@@ -172,7 +181,8 @@ class BaseSocket:
 
         # Start heartbeat
         self.last_read = time.time()
-        self._start_ping_timer()
+        if self._uses_text_pong():
+            self._start_ping_timer()
         self._start_read_timer()
 
         if self.on_connect:
@@ -598,6 +608,19 @@ class HFTDataStream(BaseSocket):
         self.on_response = None
         self._zstd = True
         self._zdec = zstd.ZstdDecompressor()
+
+    def _uses_text_pong(self) -> bool:
+        # HFT accepts JSON subscribe/unsub text only; plain PONG -> E_INVALID_JSON.
+        return False
+
+    def _run_forever_kwargs(self, url: str) -> dict:
+        kwargs = super()._run_forever_kwargs(url)
+        # websocket-client requires ping_interval > ping_timeout.
+        ping_interval = max(self.config.ping_interval, 2)
+        ping_timeout = max(1, min(ping_interval - 1, self.config.read_timeout - 1))
+        kwargs['ping_interval'] = ping_interval
+        kwargs['ping_timeout'] = ping_timeout
+        return kwargs
 
     def disconnect(self):
         """Disconnect WebSocket and release zstd decoder."""

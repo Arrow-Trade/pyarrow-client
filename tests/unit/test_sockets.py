@@ -153,6 +153,16 @@ def test_hft_data_stream_init():
     assert "zstd=1" in url
     assert stream._zstd is True
     assert stream._zdec is not None
+    assert stream._uses_text_pong() is False
+    run_kwargs = stream._run_forever_kwargs(url)
+    assert run_kwargs["ping_interval"] == config.ping_interval
+    assert run_kwargs["ping_timeout"] < run_kwargs["ping_interval"]
+
+
+def test_order_stream_uses_text_pong():
+    config = ConnectionConfig(appID="test", token="token")
+    stream = OrderStream(config)
+    assert stream._uses_text_pong() is True
 
 def test_hft_data_stream_subscribe():
     config = ConnectionConfig(appID="test", token="token")
