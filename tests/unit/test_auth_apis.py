@@ -16,7 +16,7 @@ def test_login_url(arrow_client):
 
 @responses.activate
 def test_login(arrow_client):
-    url = "https://api.arrow.trade/auth/app/authenticate-token"
+    url = "https://edge.arrow.trade/auth/app/authenticate-token"
     mock_response = {
         "status": "success",
         "data": {"token": "valid_token"}
@@ -29,7 +29,7 @@ def test_login(arrow_client):
 
 @responses.activate
 def test_login_app_secret_alias(arrow_client):
-    url = "https://api.arrow.trade/auth/app/authenticate-token"
+    url = "https://edge.arrow.trade/auth/app/authenticate-token"
     mock_response = {
         "status": "success",
         "data": {"token": "valid_token"}
@@ -44,7 +44,7 @@ def test_login_app_secret_alias(arrow_client):
 
 @responses.activate
 def test_login_failure(arrow_client):
-    url = "https://api.arrow.trade/auth/app/authenticate-token"
+    url = "https://edge.arrow.trade/auth/app/authenticate-token"
     mock_response = {
         "status": "error",
         "message": "Invalid checksum"
@@ -66,7 +66,7 @@ def test_auto_login(arrow_client):
     # Mocking standard web login URLs
     login_url = arrow_client.DEFAULT_LOGIN_URL
     validate_url = arrow_client.VALIDATE_2FA_URL
-    auth_token_url = "https://api.arrow.trade/auth/app/authenticate-token"
+    auth_token_url = "https://edge.arrow.trade/auth/app/authenticate-token"
     
     # 1. Login user step
     responses.add(

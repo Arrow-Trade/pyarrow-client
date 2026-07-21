@@ -319,7 +319,7 @@ class ArrowClient(object):
             "checkSum": checksum,
             "checksum": checksum,
         }
-        response = self._post("https://api.arrow.trade/auth/app/authenticate-token", params=params)
+        response = self._post("https://edge.arrow.trade/auth/app/authenticate-token", params=params)
         if "token" in response:
             self._token = response["token"]
             if self.debug:
