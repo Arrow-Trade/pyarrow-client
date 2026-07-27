@@ -184,6 +184,30 @@ def test_hft_data_stream_subscribe():
     assert msg["symbols"] == ["NSE:RELIANCE-EQ"]
     assert msg["latency"] == 500
 
+
+def test_hft_subscribe_by_segment_mcxfo():
+    config = ConnectionConfig(appID="test", token="token")
+    stream = HFTDataStream(config)
+
+    messages_sent = []
+    stream._send_message = messages_sent.append
+    stream.connected = lambda: True
+
+    assert HFTDataStream.EXCH_MCX_FO == 4
+    stream.subscribe_by_segment(
+        "ltpc",
+        {HFTDataStream.EXCH_MCX_FO: [1398464]},
+        latency=200,
+    )
+
+    assert len(messages_sent) == 1
+    msg = messages_sent[0]
+    assert msg["code"] == "sub"
+    assert msg["mode"] == "ltpc"
+    assert msg["latency"] == 200
+    assert msg["symIds"] == [{"exch_seg": 4, "ids": [1398464]}]
+
+
 def test_arrow_streams_manager():
     streams = ArrowStreams("app_id", "token")
     

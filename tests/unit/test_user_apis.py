@@ -86,3 +86,26 @@ def test_get_trade_book(arrow_client):
     trades = arrow_client.get_trade_book()
     assert len(trades) == 1
     assert trades[0]["tradeId"] == "T123"
+
+@responses.activate
+def test_get_trade_book_mcxfo(arrow_client):
+    url = f"{arrow_client.root_url}/user/trades"
+    mock_response = {
+        "status": "success",
+        "data": [{
+            "tradeId": "T26072701",
+            "orderNo": "26072701000257",
+            "exchange": "MCXFO",
+            "symbol": "GOLDPETAL31JUL26F",
+            "price": 14300.0,
+            "quantity": 1,
+            "transactionType": "B",
+            "product": "I",
+        }]
+    }
+    responses.add(responses.GET, url, json=mock_response, status=200)
+
+    trades = arrow_client.get_trade_book()
+    assert len(trades) == 1
+    assert trades[0]["exchange"] == "MCXFO"
+    assert trades[0]["symbol"] == "GOLDPETAL31JUL26F"

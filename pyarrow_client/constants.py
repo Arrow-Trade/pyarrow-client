@@ -106,7 +106,10 @@ class Exchange(BaseEnum):
     NFO = "NFO"
     BSE = "BSE"
     BFO = "BFO"
+    # MCX is used for user-permission checks and instrument segment downloads (GET /mcx).
+    # Prefer MCXFO for order, quote, and margin requests.
     MCX = "MCX"
+    MCXFO = "MCXFO"  # MCX Futures & Options
     INDEX = "INDEX"
 
 

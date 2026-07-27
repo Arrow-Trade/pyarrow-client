@@ -55,6 +55,40 @@ def test_place_order(arrow_client):
     assert len(responses.calls) == 1
 
 @responses.activate
+def test_place_order_mcxfo(arrow_client):
+    url = f"{arrow_client.root_url}/order/regular"
+    mock_response = {
+        "status": "success",
+        "data": {"orderNo": "26072701000257"}
+    }
+    responses.add(responses.POST, url, json=mock_response, status=200)
+
+    order_id = arrow_client.place_order(
+        exchange=Exchange.MCXFO,
+        symbol="GOLDPETAL31JUL26F",
+        quantity=1,
+        disclosed_quantity=0,
+        product=ProductType.MIS,
+        order_type=OrderType.LIMIT,
+        variety=Variety.REGULAR,
+        transaction_type=TransactionType.BUY,
+        price=14300.0,
+        validity=Retention.DAY,
+        trigger_price=0.0,
+    )
+
+    assert order_id == "26072701000257"
+    assert len(responses.calls) == 1
+    body = responses.calls[0].request.body
+    import json
+    payload = json.loads(body)
+    assert payload["exchange"] == "MCXFO"
+    assert payload["symbol"] == "GOLDPETAL31JUL26F"
+    assert payload["product"] == "I"
+    assert payload["order"] == "LMT"
+    assert payload["triggerPrice"] == "0.0"
+
+@responses.activate
 def test_get_order_book(arrow_client):
     url = f"{arrow_client.root_url}/user/orders"
     

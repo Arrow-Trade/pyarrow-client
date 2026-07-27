@@ -51,6 +51,45 @@ def test_get_quotes(arrow_client):
     assert data[0]["symbol"] == "RELIANCE-EQ"
 
 @responses.activate
+def test_get_quote_mcxfo(arrow_client):
+    url = f"{arrow_client.root_url}/info/quote/{QuoteMode.LTP.value}"
+    mock_response = {
+        "status": "success",
+        "data": {"symbol": "GOLDPETAL31JUL26F", "ltp": 14300}
+    }
+    responses.add(responses.POST, url, json=mock_response, status=200)
+
+    data = arrow_client.get_quote(QuoteMode.LTP, "GOLDPETAL31JUL26F", Exchange.MCXFO)
+    assert data["ltp"] == 14300
+    import json
+    payload = json.loads(responses.calls[0].request.body)
+    assert payload["exchange"] == "MCXFO"
+    assert payload["symbol"] == "GOLDPETAL31JUL26F"
+
+@responses.activate
+def test_get_quotes_mcxfo_batch(arrow_client):
+    url = f"{arrow_client.root_url}/info/quotes/{QuoteMode.LTP.value}"
+    mock_response = {
+        "status": "success",
+        "data": [{"symbol": "GOLDPETAL31JUL26F", "ltp": 14300}]
+    }
+    responses.add(responses.POST, url, json=mock_response, status=200)
+
+    symbols = [
+        ("ADANIENT-EQ", Exchange.NSE),
+        ("GOLDPETAL31JUL26F", Exchange.MCXFO),
+        ("RELIANCE", Exchange.BSE),
+    ]
+    data = arrow_client.get_quotes(QuoteMode.LTP, symbols)
+    assert len(data) == 1
+    assert data[0]["symbol"] == "GOLDPETAL31JUL26F"
+    import json
+    payload = json.loads(responses.calls[0].request.body)
+    assert len(payload) == 3
+    assert payload[1]["exchange"] == "MCXFO"
+    assert payload[1]["symbol"] == "GOLDPETAL31JUL26F"
+
+@responses.activate
 def test_candle_data(arrow_client):
     # Notice candle_url is different from root_url
     url = f"{arrow_client._routes.get_candle_url()}/candle/NSE/12345/1?from=2023-01-01&to=2023-01-02&oi=0"

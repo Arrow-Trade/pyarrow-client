@@ -563,6 +563,7 @@ class HFTDataStream(BaseSocket):
         - 1: NSE_FO (NSE Futures & Options)
         - 2: BSE_CM (BSE Cash Market)
         - 3: BSE_FO (BSE Futures & Options)
+        - 4: MCX_FO (MCX Futures & Options)
 
     Symbol Name Formats:
         - NSECM: NSE.<UNDERLYING>-<SERIES> (e.g., NSE.SBIN-EQ)
@@ -571,6 +572,7 @@ class HFTDataStream(BaseSocket):
         - BSECM: BSE.<UNDERLYING> (e.g., BSE.SBIN)
         - BSEFO Options: <ASSET_TYPE><DD><MON><YY><C|P><STRIKE> (e.g., SENSEX01JAN26C74900)
         - BSEFO Futures: <ASSET_TYPE><DD><MON><YY>F (e.g., SENSEX01JAN26F)
+        - MCXFO Futures: <UNDERLYING><DD><MON><YY>F (e.g., GOLDPETAL31JUL26F)
 
     Rate Limits:
         - Maximum 100 requests per second per connection
@@ -578,7 +580,7 @@ class HFTDataStream(BaseSocket):
         - Maximum 1024 subscribed symbols per connection
         - Maximum request size: 16KB
 
-    Note: Currently supports LTP only for NSEFO and NSECM, and full for others.
+    Note: Currently supports LTP for NSEFO, NSECM, and other segments as supported by the service; full depth for other segments.
     """
 
     # Packet type constants
@@ -596,6 +598,7 @@ class HFTDataStream(BaseSocket):
     EXCH_NSE_FO = 1
     EXCH_BSE_CM = 2
     EXCH_BSE_FO = 3
+    EXCH_MCX_FO = 4  # Reserved for MCX F&O; prefer DataStream/REST until HFT accepts MCX tokens
 
     def __init__(self, config: ConnectionConfig):
         super().__init__(config)
@@ -777,12 +780,14 @@ class HFTDataStream(BaseSocket):
                 - 1: NSE_FO (NSE Futures & Options)
                 - 2: BSE_CM (BSE Cash Market)
                 - 3: BSE_FO (BSE Futures & Options)
+                - 4: MCX_FO (MCX Futures & Options)
             latency: Time interval between ticks in milliseconds (50-60000, default 1000)
 
         Example:
             stream.subscribe_by_segment('full', {
                 HFTDataStream.EXCH_NSE_FO: [5042, 4449, 91],
-                HFTDataStream.EXCH_BSE_CM: [100, 200]
+                HFTDataStream.EXCH_BSE_CM: [100, 200],
+                HFTDataStream.EXCH_MCX_FO: [1398464],
             }, latency=100)
         """
         # Normalize mode
