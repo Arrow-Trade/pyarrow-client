@@ -3,6 +3,7 @@
 
 # VS Code (local settings; remove this line if you share workspace config)
 .vscode/
+*.code-workspace
 
 # macOS
 .DS_Store

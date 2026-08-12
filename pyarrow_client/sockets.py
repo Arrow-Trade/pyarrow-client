@@ -92,6 +92,12 @@ class MarketTick:
     bids: List[Dict[str, Union[float, int]]] = field(default_factory=list)
     asks: List[Dict[str, Union[float, int]]] = field(default_factory=list)
 
+    # Closing Auction Session (CAS) — appended (+16 bytes) to every mode after ~15:15 IST
+    imbalance_qty: int = 0  # signed int64 (negative = sell-side imbalance)
+    indicative_close: float = 0.0
+    ref_price: float = 0.0
+
+
 
 class BaseSocket:
     """Base WebSocket class with common functionality"""
@@ -420,45 +426,54 @@ class DataStream(BaseSocket):
             logger.error(f"Failed to send message: {e}")
 
     def _parse_binary(self, data: bytes) -> Optional[MarketTick]:
-        """Parse binary market data (matching JS implementation exactly)"""
-        # LTP-only packets are 13 bytes; LTPC and larger modes need at least 17.
-        if len(data) < 13:
+        """Parse binary market data (matching JS implementation exactly).
+
+        Base sizes: ltp=13, ltpc=17, quote=93, full=249 (241 legacy).
+        During CAS (after ~15:15 IST) each mode appends a 16-byte trailer:
+        imbalance_qty (int64, signed) + indicative_close (int32) + ref_price (int32)
+        → 29 / 33 / 109 / 265.
+        """
+        n = len(data)
+        # Map CAS-extended sizes back to their base packet length.
+        cas_base = {29: 13, 33: 17, 109: 93, 265: 249}.get(n)
+        base_len = cas_base if cas_base is not None else n
+
+        if base_len < 13:
             return None
-        if 13 < len(data) < 17:
-            return None
+        if base_len not in (13, 17, 93, 241, 249) and cas_base is None:
+            # Allow progressive parse only for known base/CAS sizes.
+            if base_len < 17:
+                return None
 
         try:
-            # Parse basic data
             tick = MarketTick(
                 token=self._big_endian_to_int(data[0:4]),
-                ltp=self._big_endian_to_int(data[4:8])
+                ltp=self._big_endian_to_int(data[4:8]),
             )
 
-            if len(data) == 13:
+            if base_len == 13:
                 tick.mode = DataMode.LTP.value
 
-            # LTPC mode (17 bytes)
-            if len(data) >= 17:
+            # LTPC mode (17-byte base; do not treat LTP+CAS 29 as LTPC)
+            if base_len >= 17 and base_len != 13:
                 tick.close = self._big_endian_to_int(data[13:17])
 
-                # Calculate net change
                 if tick.close != 0:
                     tick.net_change = round(((tick.ltp - tick.close) / tick.close) * 100, 2)
                 else:
                     tick.net_change = 0.0
 
-                # Set change flag
                 if tick.ltp > tick.close:
-                    tick.change_flag = 43  # ASCII '+'
+                    tick.change_flag = 43
                 elif tick.ltp < tick.close:
-                    tick.change_flag = 45  # ASCII '-'
+                    tick.change_flag = 45
                 else:
-                    tick.change_flag = 32  # No change
+                    tick.change_flag = 32
 
                 tick.mode = DataMode.LTPC.value
 
-            # Quote mode (93 bytes)
-            if len(data) >= 93:
+            # Quote mode (93-byte base)
+            if base_len >= 93:
                 tick.ltq = self._big_endian_to_int(data[13:17])
                 tick.avg_price = self._big_endian_to_int(data[17:21])
                 tick.total_buy_quantity = self._big_endian_to_int(data[21:29])
@@ -474,13 +489,11 @@ class DataStream(BaseSocket):
                 tick.oi_day_high = self._big_endian_to_int(data[77:85])
                 tick.oi_day_low = self._big_endian_to_int(data[85:93])
 
-                # Recalculate net change with close from quote data
                 if tick.close != 0:
                     tick.net_change = round(((tick.ltp - tick.close) / tick.close) * 100, 2)
                 else:
                     tick.net_change = 0.0
 
-                # Recalculate change flag
                 if tick.ltp > tick.close:
                     tick.change_flag = 43
                 elif tick.ltp < tick.close:
@@ -490,12 +503,12 @@ class DataStream(BaseSocket):
 
                 tick.mode = DataMode.QUOTE.value
 
-            # Full mode: 249 bytes (8 reserved bytes before depth); 241-byte legacy packets still parsed
-            if len(data) >= 241:
+            # Full mode: 249 bytes (8 reserved before depth); 241-byte legacy still parsed.
+            if base_len >= 241:
                 tick.lower_limit = self._big_endian_to_int(data[93:97])
                 tick.upper_limit = self._big_endian_to_int(data[97:101])
 
-                depth_offset = 109 if len(data) >= 249 else 101
+                depth_offset = 109 if base_len >= 249 else 101
                 depth_end = depth_offset + 10 * 14
                 if len(data) >= depth_end:
                     bids = []
@@ -522,7 +535,13 @@ class DataStream(BaseSocket):
                     tick.asks = asks
                     tick.mode = DataMode.FULL.value
 
-            # Reset net change if close is 0
+            # CAS trailer: last 16 bytes when packet is base+16
+            if cas_base is not None:
+                off = cas_base
+                tick.imbalance_qty = self._big_endian_to_signed_int(data[off:off + 8])
+                tick.indicative_close = self._big_endian_to_int(data[off + 8:off + 12])
+                tick.ref_price = self._big_endian_to_int(data[off + 12:off + 16])
+
             if tick.close == 0:
                 tick.net_change = 0.0
 
@@ -533,7 +552,7 @@ class DataStream(BaseSocket):
             return None
 
     def _big_endian_to_int(self, buffer: bytes) -> int:
-        """Convert big-endian bytes to integer (matching JS implementation exactly)"""
+        """Convert big-endian bytes to unsigned integer (matching JS implementation exactly)"""
         value = 0
         length = len(buffer)
 
@@ -541,6 +560,15 @@ class DataStream(BaseSocket):
             j = length - 1 - i
             value += buffer[j] << (i * 8)
 
+        return value
+
+    def _big_endian_to_signed_int(self, buffer: bytes) -> int:
+        """Convert big-endian two's-complement bytes to a signed Python int."""
+        value = self._big_endian_to_int(buffer)
+        bits = len(buffer) * 8
+        sign_bit = 1 << (bits - 1)
+        if value & sign_bit:
+            value -= 1 << bits
         return value
 
 

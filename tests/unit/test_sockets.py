@@ -28,9 +28,12 @@ def test_data_stream_init():
     assert "appID=test" in url
     assert "token=token" in url
 
-def _build_full_packet(depth_offset: int) -> bytes:
-    """Build a FULL-mode wire packet (241 or 249 bytes)."""
-    buf = bytearray(depth_offset + 10 * 14)
+def _build_full_packet(depth_offset: int, cas: bool = False) -> bytes:
+    """Build a FULL-mode wire packet (241, 249, or 265-byte CAS)."""
+    size = depth_offset + 10 * 14
+    if cas:
+        size = max(size, 265)
+    buf = bytearray(size)
     struct.pack_into(">I", buf, 0, 3045)
     struct.pack_into(">I", buf, 4, 97780)
     struct.pack_into(">I", buf, 13, 10)
@@ -54,6 +57,10 @@ def _build_full_packet(depth_offset: int) -> bytes:
         struct.pack_into(">Q", buf, off, 100 + i)
         struct.pack_into(">I", buf, off + 8, 97750 + i)
         struct.pack_into(">H", buf, off + 12, 5)
+    if cas:
+        struct.pack_into(">q", buf, 249, -12345)      # imbalance qty (signed)
+        struct.pack_into(">I", buf, 257, 97800)       # indicative close
+        struct.pack_into(">I", buf, 261, 97750)       # ref price
     return bytes(buf)
 
 
@@ -84,6 +91,91 @@ def test_data_stream_parse_full_249_byte():
     assert len(tick.bids) == 5
     assert tick.bids[0]["price"] == 97750
     assert tick.asks[0]["price"] == 97755
+    assert tick.imbalance_qty == 0
+    assert tick.indicative_close == 0
+    assert tick.ref_price == 0
+
+
+def test_data_stream_parse_full_265_byte_cas():
+    """During CAS (after ~15:15 IST) FULL ticks extend to 265 bytes with auction fields."""
+    config = ConnectionConfig(appID="test", token="token")
+    stream = DataStream(config)
+    payload = _build_full_packet(depth_offset=109, cas=True)
+    assert len(payload) == 265
+    tick = stream._parse_binary(payload)
+    assert tick is not None
+    assert tick.mode == DataMode.FULL.value
+    assert len(tick.bids) == 5
+    assert tick.bids[0]["price"] == 97750
+    assert tick.imbalance_qty == -12345
+    assert tick.indicative_close == 97800
+    assert tick.ref_price == 97750
+
+
+def _append_cas(buf: bytearray, base_len: int) -> bytes:
+    """Append 16-byte CAS trailer at base_len."""
+    out = bytearray(base_len + 16)
+    out[: len(buf)] = buf
+    struct.pack_into(">q", out, base_len, -12345)
+    struct.pack_into(">I", out, base_len + 8, 97800)
+    struct.pack_into(">I", out, base_len + 12, 97750)
+    return bytes(out)
+
+
+def test_data_stream_parse_ltp_29_byte_cas():
+    config = ConnectionConfig(appID="test", token="token")
+    stream = DataStream(config)
+    base = struct.pack(">II", 3045, 97780) + b"\x00" * 5
+    assert len(base) == 13
+    payload = _append_cas(bytearray(base), 13)
+    assert len(payload) == 29
+    tick = stream._parse_binary(payload)
+    assert tick is not None
+    assert tick.mode == DataMode.LTP.value
+    assert tick.token == 3045
+    assert tick.ltp == 97780
+    assert tick.close == 0  # must not treat CAS bytes as close
+    assert tick.imbalance_qty == -12345
+    assert tick.indicative_close == 97800
+    assert tick.ref_price == 97750
+
+
+def test_data_stream_parse_ltpc_33_byte_cas():
+    config = ConnectionConfig(appID="test", token="token")
+    stream = DataStream(config)
+    base = bytearray(17)
+    struct.pack_into(">I", base, 0, 3045)
+    struct.pack_into(">I", base, 4, 97780)
+    struct.pack_into(">I", base, 13, 97000)
+    payload = _append_cas(base, 17)
+    assert len(payload) == 33
+    tick = stream._parse_binary(payload)
+    assert tick is not None
+    assert tick.mode == DataMode.LTPC.value
+    assert tick.close == 97000
+    assert tick.imbalance_qty == -12345
+    assert tick.indicative_close == 97800
+    assert tick.ref_price == 97750
+
+
+def test_data_stream_parse_quote_109_byte_cas():
+    config = ConnectionConfig(appID="test", token="token")
+    stream = DataStream(config)
+    base = bytearray(93)
+    struct.pack_into(">I", base, 0, 3045)
+    struct.pack_into(">I", base, 4, 97780)
+    struct.pack_into(">I", base, 13, 10)
+    struct.pack_into(">I", base, 45, 97000)
+    payload = _append_cas(base, 93)
+    assert len(payload) == 109
+    tick = stream._parse_binary(payload)
+    assert tick is not None
+    assert tick.mode == DataMode.QUOTE.value
+    assert tick.close == 97000
+    assert tick.imbalance_qty == -12345
+    assert tick.indicative_close == 97800
+    assert tick.ref_price == 97750
+    assert tick.bids == []
 
 
 def test_data_stream_parse_ltp_13_byte():
