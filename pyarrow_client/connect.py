@@ -562,8 +562,16 @@ class ArrowClient(object):
         )
         return self._post(self._routes.OPTION_CHAIN, params=params)
 
-    def get_greeks(self, tokens: List[str]) -> Any:
-        return self._post(self._routes.GREEKS, params=[int(t) for t in tokens])
+    def get_greeks(self, instruments: list[tuple[str, Exchange]]) -> Any:
+        """Fetch option Greeks for one or more instruments.
+
+        POST /info/greeks with a JSON array of {exchange, symbol}.
+        """
+        data = [
+            dict(symbol=symbol, exchange=str(exchange))
+            for symbol, exchange in instruments
+        ]
+        return self._post(self._routes.GREEKS, params=data)
 
     # Utility by Arrow
 
