@@ -94,6 +94,7 @@ def test_data_stream_parse_full_249_byte():
     assert tick.imbalance_qty == 0
     assert tick.indicative_close == 0
     assert tick.ref_price == 0
+    assert tick.is_cas is False
 
 
 def test_data_stream_parse_full_265_byte_cas():
@@ -110,6 +111,7 @@ def test_data_stream_parse_full_265_byte_cas():
     assert tick.imbalance_qty == -12345
     assert tick.indicative_close == 97800
     assert tick.ref_price == 97750
+    assert tick.is_cas is True
 
 
 def _append_cas(buf: bytearray, base_len: int) -> bytes:
@@ -138,6 +140,7 @@ def test_data_stream_parse_ltp_29_byte_cas():
     assert tick.imbalance_qty == -12345
     assert tick.indicative_close == 97800
     assert tick.ref_price == 97750
+    assert tick.is_cas is True
 
 
 def test_data_stream_parse_ltpc_33_byte_cas():
@@ -156,6 +159,7 @@ def test_data_stream_parse_ltpc_33_byte_cas():
     assert tick.imbalance_qty == -12345
     assert tick.indicative_close == 97800
     assert tick.ref_price == 97750
+    assert tick.is_cas is True
 
 
 def test_data_stream_parse_quote_109_byte_cas():
@@ -175,6 +179,7 @@ def test_data_stream_parse_quote_109_byte_cas():
     assert tick.imbalance_qty == -12345
     assert tick.indicative_close == 97800
     assert tick.ref_price == 97750
+    assert tick.is_cas is True
     assert tick.bids == []
 
 
@@ -277,6 +282,24 @@ def test_hft_data_stream_subscribe():
     assert msg["latency"] == 500
 
 
+def test_hft_subscribe_cas_omits_latency():
+    config = ConnectionConfig(appID="test", token="token")
+    stream = HFTDataStream(config)
+    messages_sent = []
+    stream._send_message = messages_sent.append
+    stream.connected = lambda: True
+
+    stream.subscribe("cas", ["NSE.RELIANCE-EQ"], latency=1000)
+
+    assert len(messages_sent) == 1
+    msg = messages_sent[0]
+    assert msg["code"] == "sub"
+    assert msg["mode"] == "cas"
+    assert msg["symbols"] == ["NSE.RELIANCE-EQ"]
+    assert "latency" not in msg
+    assert "NSE.RELIANCE-EQ" in stream.subscriptions["cas"]
+
+
 def test_hft_subscribe_by_segment_mcxfo():
     config = ConnectionConfig(appID="test", token="token")
     stream = HFTDataStream(config)
@@ -351,3 +374,81 @@ def test_hft_zstd_decompress_roundtrip():
     assert len(ticks) == 1
     assert ticks[0]["token"] == 99
     assert ticks[0]["ltp"] == 12345
+
+
+def _make_cas_frame(token=2885):
+    data = bytearray(HFTDataStream.PKT_SIZE_CAS)
+    struct.pack_into('<h', data, 0, HFTDataStream.PKT_SIZE_CAS)
+    data[2] = HFTDataStream.PKT_TYPE_CAS
+    data[3] = HFTDataStream.EXCH_NSE_CM
+    struct.pack_into('<i', data, 4, token)
+    for i in range(4):
+        struct.pack_into('<Q', data, 8 + i * 8, 100000 + i)
+        struct.pack_into('<I', data, 40 + i * 4, 10 + i)
+        struct.pack_into('<Q', data, 56 + i * 8, 101000 + i)
+        struct.pack_into('<I', data, 88 + i * 4, 20 + i)
+    struct.pack_into('<Q', data, 104, 1_700_000_000_000_000_000)
+    struct.pack_into('<q', data, 112, -5000)
+    struct.pack_into('<q', data, 120, 100)
+    struct.pack_into('<Q', data, 128, 97800)
+    struct.pack_into('<Q', data, 136, 97750)
+    struct.pack_into('<Q', data, 144, 0)
+    struct.pack_into('<I', data, 152, 1234)
+    struct.pack_into('<I', data, 156, 10)
+    struct.pack_into('<I', data, 160, 20)
+    data[164] = 2
+    data[165] = 1
+    data[166] = 2
+    data[167] = 1
+    return bytes(data)
+
+
+def test_hft_packet_meta_cas():
+    frame = _make_cas_frame()
+    n, pkt, ok = HFTDataStream._hft_packet_meta(frame)
+    assert ok
+    assert n == HFTDataStream.PKT_SIZE_CAS
+    assert pkt == HFTDataStream.PKT_TYPE_CAS
+
+
+def test_hft_parse_cas_packet():
+    config = ConnectionConfig(appID="test", token="token")
+    stream = HFTDataStream(config)
+    tick = stream._parse_cas_packet(_make_cas_frame())
+    assert tick["pkt_type"] == HFTDataStream.PKT_TYPE_CAS
+    assert tick["token"] == 2885
+    assert tick["bid_px"][0] == 100000
+    assert tick["bid_size"][3] == 13
+    assert tick["ask_px"][0] == 101000
+    assert tick["imbalance_qty"] == -5000
+    assert tick["indicative_px"] == 97800
+    assert tick["closing_ref_px"] == 97750
+    assert tick["indicative_qty"] == 1234
+    assert tick["only_limit_orders"] is True
+    assert tick["phase"] == 2
+
+
+def test_hft_dispatch_cas_packet():
+    config = ConnectionConfig(appID="test", token="token")
+    stream = HFTDataStream(config)
+    ticks = []
+    stream.on_cas_tick = ticks.append
+    stream._dispatch_hft_payload(_make_cas_frame(token=42))
+    assert len(ticks) == 1
+    assert ticks[0]["token"] == 42
+    assert ticks[0]["imbalance_qty"] == -5000
+
+
+def test_hft_response_mode_cas():
+    config = ConnectionConfig(appID="test", token="token")
+    stream = HFTDataStream(config)
+    data = bytearray(HFTDataStream.PKT_SIZE_RESPONSE)
+    struct.pack_into('<I', data, 0, HFTDataStream.PKT_SIZE_RESPONSE)
+    data[4] = HFTDataStream.PKT_TYPE_RESPONSE
+    data[6:13] = b"SUCCESS"
+    data[534] = 0
+    data[535] = 3
+    struct.pack_into('<H', data, 536, 1)
+    resp = stream._parse_response(bytes(data))
+    assert resp["mode_str"] == "cas"
+    assert resp["request_type_str"] == "subscribe"

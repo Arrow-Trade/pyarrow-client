@@ -93,6 +93,7 @@ class MarketTick:
     asks: List[Dict[str, Union[float, int]]] = field(default_factory=list)
 
     # Closing Auction Session (CAS) — appended (+16 bytes) to every mode after ~15:15 IST
+    is_cas: bool = False  # True when the packet included the 16-byte CAS tail
     imbalance_qty: int = 0  # signed int64 (negative = sell-side imbalance)
     indicative_close: float = 0.0
     ref_price: float = 0.0
@@ -538,6 +539,7 @@ class DataStream(BaseSocket):
             # CAS trailer: last 16 bytes when packet is base+16
             if cas_base is not None:
                 off = cas_base
+                tick.is_cas = True
                 tick.imbalance_qty = self._big_endian_to_signed_int(data[off:off + 8])
                 tick.indicative_close = self._big_endian_to_int(data[off + 8:off + 12])
                 tick.ref_price = self._big_endian_to_int(data[off + 12:off + 16])
@@ -584,6 +586,7 @@ class HFTDataStream(BaseSocket):
     Packet Types:
         - PKT_TYPE_LTP (1): 40 bytes - Last traded price data
         - PKT_TYPE_FULL (2): 196 bytes - Full market depth data
+        - PKT_TYPE_CAS (7): 168 bytes - Closing Auction Session data
         - PKT_TYPE_RESPONSE (99): 540 bytes - Server response to requests
 
     Exchange Segments:
@@ -614,10 +617,12 @@ class HFTDataStream(BaseSocket):
     # Packet type constants
     PKT_TYPE_LTP = 1
     PKT_TYPE_FULL = 2
+    PKT_TYPE_CAS = 7
     PKT_TYPE_RESPONSE = 99
 
     # Packet sizes (in bytes)
     PKT_SIZE_LTP = 40
+    PKT_SIZE_CAS = 168
     PKT_SIZE_FULL = 196
     PKT_SIZE_RESPONSE = 540
 
@@ -632,10 +637,12 @@ class HFTDataStream(BaseSocket):
         super().__init__(config)
         self.subscriptions = {
             'ltpc': {},
-            'full': {}
+            'full': {},
+            'cas': {},
         }
         self.on_ltp_tick = None
         self.on_full_tick = None
+        self.on_cas_tick = None
         self.on_response = None
         self._zstd = True
         self._zdec = zstd.ZstdDecompressor()
@@ -671,10 +678,21 @@ class HFTDataStream(BaseSocket):
         return self._zdec.decompress(payload)
 
     @staticmethod
+    def _normalize_hft_mode(mode: str) -> Optional[str]:
+        """Map subscribe mode aliases to the wire mode string."""
+        return {
+            'l': 'ltpc',
+            'ltpc': 'ltpc',
+            'f': 'full',
+            'full': 'full',
+            'cas': 'cas',
+        }.get((mode or '').lower())
+
+    @staticmethod
     def _hft_packet_meta(payload: bytes):
         """Inspect the next frame in payload. Response frames use a 4-byte uint32
-        size (540) with pkt_type at offset 4; LTP/full ticks use int16 size with
-        pkt_type at offset 2."""
+        size (540) with pkt_type at offset 4; LTP/CAS/full ticks use int16 size
+        with pkt_type at offset 2."""
         if len(payload) >= HFTDataStream.PKT_SIZE_RESPONSE:
             size = struct.unpack('<I', payload[0:4])[0]
             if size == HFTDataStream.PKT_SIZE_RESPONSE and payload[4] == HFTDataStream.PKT_TYPE_RESPONSE:
@@ -683,6 +701,10 @@ class HFTDataStream(BaseSocket):
             size = struct.unpack('<h', payload[0:2])[0]
             if size == HFTDataStream.PKT_SIZE_LTP and payload[2] == HFTDataStream.PKT_TYPE_LTP:
                 return HFTDataStream.PKT_SIZE_LTP, HFTDataStream.PKT_TYPE_LTP, True
+        if len(payload) >= HFTDataStream.PKT_SIZE_CAS:
+            size = struct.unpack('<h', payload[0:2])[0]
+            if size == HFTDataStream.PKT_SIZE_CAS and payload[2] == HFTDataStream.PKT_TYPE_CAS:
+                return HFTDataStream.PKT_SIZE_CAS, HFTDataStream.PKT_TYPE_CAS, True
         if len(payload) >= HFTDataStream.PKT_SIZE_FULL:
             size = struct.unpack('<h', payload[0:2])[0]
             if size == HFTDataStream.PKT_SIZE_FULL and payload[2] == HFTDataStream.PKT_TYPE_FULL:
@@ -712,13 +734,17 @@ class HFTDataStream(BaseSocket):
                 full_tick = self._parse_full_packet(frame)
                 if full_tick and self.on_full_tick:
                     self.on_full_tick(full_tick)
+            elif pkt == self.PKT_TYPE_CAS:
+                cas_tick = self._parse_cas_packet(frame)
+                if cas_tick and self.on_cas_tick:
+                    self.on_cas_tick(cas_tick)
 
     def _on_open(self, ws):
         """Handle connection open and resubscribe"""
         super()._on_open(ws)
 
         # Resubscribe to all existing subscriptions
-        for mode in ['ltpc', 'full']:
+        for mode in ['ltpc', 'full', 'cas']:
             tokens = list(self.subscriptions[mode].keys())
             if tokens:
                 self.subscribe(mode, tokens)
@@ -741,7 +767,7 @@ class HFTDataStream(BaseSocket):
         """Subscribe to market data.
 
         Args:
-            mode: Data mode - 'ltpc' or 'l' for LTP, 'full' or 'f' for full market depth
+            mode: Data mode - 'ltpc'/'l' (LTP), 'full'/'f' (depth), or 'cas' (closing auction)
             symbols: List of symbol names (strings) or token IDs (integers)
                 Symbol name formats:
                 - NSECM: NSE.<UNDERLYING>-<SERIES> (e.g., "NSE.SBIN-EQ")
@@ -750,24 +776,18 @@ class HFTDataStream(BaseSocket):
                 - BSECM: BSE.<UNDERLYING> (e.g., "BSE.SBIN")
                 - BSEFO Options: <ASSET_TYPE><DD><MON><YY><C|P><STRIKE> (e.g., "SENSEX01JAN26C74900")
                 - BSEFO Futures: <ASSET_TYPE><DD><MON><YY>F (e.g., "SENSEX01JAN26F")
-            latency: Time interval between ticks in milliseconds (50-60000, default 1000)
+            latency: Tick interval in milliseconds (50-60000, default 1000). Omitted for CAS.
 
         Example:
-            # Subscribe by symbol names
             stream.subscribe('ltpc', ['NSE.SBIN-EQ', 'BSE.RELIANCE'], latency=100)
-
-            # Subscribe by token IDs
+            stream.subscribe('cas', ['NSE.RELIANCE-EQ'])
             stream.subscribe('full', [5042, 4449], latency=200)
         """
-        # Normalize mode
-        mode_map = {'l': 'ltpc', 'f': 'full'}
-        normalized_mode = mode_map.get(mode, mode)
-
-        if normalized_mode not in ['ltpc', 'full']:
-            logger.error(f"Invalid mode: {mode}. Must be 'ltpc', 'l', 'full', or 'f'")
+        normalized_mode = self._normalize_hft_mode(mode)
+        if normalized_mode is None:
+            logger.error(f"Invalid mode: {mode}. Must be 'ltpc', 'l', 'full', 'f', or 'cas'")
             return
 
-        # Update local subscriptions
         for symbol in symbols:
             key = symbol if isinstance(symbol, str) else str(symbol)
             self.subscriptions[normalized_mode][key] = 1
@@ -776,18 +796,16 @@ class HFTDataStream(BaseSocket):
             return
 
         if symbols:
-            # Build subscription message
             message = {
                 "code": "sub",
                 "mode": normalized_mode,
-                "latency": latency
             }
+            if normalized_mode != 'cas':
+                message["latency"] = latency
 
-            # Add symbols based on type
             if all(isinstance(s, str) for s in symbols):
                 message["symbols"] = symbols
             elif all(isinstance(s, int) for s in symbols):
-                # Group by exchange segment if provided, otherwise use default
                 message["symIds"] = [{"exch_seg": 0, "ids": symbols}]
             else:
                 logger.error("Mixed symbol types not supported. Use all strings or all integers.")
@@ -795,13 +813,16 @@ class HFTDataStream(BaseSocket):
 
             self._send_message(message)
 
-        logger.info(f"Subscribed to {len(symbols)} symbols in {normalized_mode} mode with {latency}ms latency")
+        if normalized_mode == 'cas':
+            logger.info(f"Subscribed to {len(symbols)} symbols in cas mode")
+        else:
+            logger.info(f"Subscribed to {len(symbols)} symbols in {normalized_mode} mode with {latency}ms latency")
 
     def subscribe_by_segment(self, mode: str, segment_symbols: Dict[int, List[int]], latency: int = 1000):
         """Subscribe to market data with explicit exchange segment mapping.
 
         Args:
-            mode: Data mode - 'ltpc' or 'l' for LTP, 'full' or 'f' for full market depth
+            mode: Data mode - 'ltpc'/'l', 'full'/'f', or 'cas'
             segment_symbols: Dictionary mapping exchange segment to list of token IDs
                 Exchange segments:
                 - 0: NSE_CM (NSE Cash Market)
@@ -809,7 +830,7 @@ class HFTDataStream(BaseSocket):
                 - 2: BSE_CM (BSE Cash Market)
                 - 3: BSE_FO (BSE Futures & Options)
                 - 4: MCX_FO (MCX Futures & Options)
-            latency: Time interval between ticks in milliseconds (50-60000, default 1000)
+            latency: Tick interval in milliseconds (50-60000, default 1000). Omitted for CAS.
 
         Example:
             stream.subscribe_by_segment('full', {
@@ -818,12 +839,9 @@ class HFTDataStream(BaseSocket):
                 HFTDataStream.EXCH_MCX_FO: [1398464],
             }, latency=100)
         """
-        # Normalize mode
-        mode_map = {'l': 'ltpc', 'f': 'full'}
-        normalized_mode = mode_map.get(mode, mode)
-
-        if normalized_mode not in ['ltpc', 'full']:
-            logger.error(f"Invalid mode: {mode}. Must be 'ltpc', 'l', 'full', or 'f'")
+        normalized_mode = self._normalize_hft_mode(mode)
+        if normalized_mode is None:
+            logger.error(f"Invalid mode: {mode}. Must be 'ltpc', 'l', 'full', 'f', or 'cas'")
             return
 
         # Update local subscriptions
@@ -842,30 +860,32 @@ class HFTDataStream(BaseSocket):
             message = {
                 "code": "sub",
                 "mode": normalized_mode,
-                "latency": latency,
                 "symIds": sym_ids
             }
+            if normalized_mode != 'cas':
+                message["latency"] = latency
             self._send_message(message)
 
         total_symbols = sum(len(ids) for ids in segment_symbols.values())
-        logger.info(f"Subscribed to {total_symbols} symbols in {normalized_mode} mode with {latency}ms latency")
+        if normalized_mode == 'cas':
+            logger.info(f"Subscribed to {total_symbols} symbols in cas mode")
+        else:
+            logger.info(f"Subscribed to {total_symbols} symbols in {normalized_mode} mode with {latency}ms latency")
 
     def unsubscribe(self, mode: str, symbols: List[Union[str, int]]):
         """Unsubscribe from market data.
 
         Args:
-            mode: Data mode - 'ltpc' or 'l' for LTP, 'full' or 'f' for full market depth
+            mode: Data mode - 'ltpc'/'l', 'full'/'f', or 'cas'
             symbols: List of symbol names (strings) or token IDs (integers)
 
         Example:
             stream.unsubscribe('ltpc', ['NSE.SBIN-EQ'])
+            stream.unsubscribe('cas', ['NSE.RELIANCE-EQ'])
         """
-        # Normalize mode
-        mode_map = {'l': 'ltpc', 'f': 'full'}
-        normalized_mode = mode_map.get(mode, mode)
-
-        if normalized_mode not in ['ltpc', 'full']:
-            logger.error(f"Invalid mode: {mode}. Must be 'ltpc', 'l', 'full', or 'f'")
+        normalized_mode = self._normalize_hft_mode(mode)
+        if normalized_mode is None:
+            logger.error(f"Invalid mode: {mode}. Must be 'ltpc', 'l', 'full', 'f', or 'cas'")
             return
 
         # Update local subscriptions
@@ -900,7 +920,7 @@ class HFTDataStream(BaseSocket):
         """Unsubscribe from market data with explicit exchange segment mapping.
 
         Args:
-            mode: Data mode - 'ltpc' or 'l' for LTP, 'full' or 'f' for full market depth
+            mode: Data mode - 'ltpc'/'l', 'full'/'f', or 'cas'
             segment_symbols: Dictionary mapping exchange segment to list of token IDs
 
         Example:
@@ -908,12 +928,9 @@ class HFTDataStream(BaseSocket):
                 HFTDataStream.EXCH_NSE_FO: [5042, 4449]
             })
         """
-        # Normalize mode
-        mode_map = {'l': 'ltpc', 'f': 'full'}
-        normalized_mode = mode_map.get(mode, mode)
-
-        if normalized_mode not in ['ltpc', 'full']:
-            logger.error(f"Invalid mode: {mode}. Must be 'ltpc', 'l', 'full', or 'f'")
+        normalized_mode = self._normalize_hft_mode(mode)
+        if normalized_mode is None:
+            logger.error(f"Invalid mode: {mode}. Must be 'ltpc', 'l', 'full', 'f', or 'cas'")
             return
 
         # Update local subscriptions
@@ -960,7 +977,7 @@ class HFTDataStream(BaseSocket):
             6       16    char[]    error_code    Error code string (null-terminated)
             22      512   char[]    error_msg     Error message (null-terminated)
             534     1     uint8     request_type  0=subscribe, 1=unsubscribe
-            535     1     uint8     mode          0=ltpc, 1=full
+            535     1     uint8     mode          0=ltpc, 1=full, 3=cas
             536     2     uint16    success_count Number of successful symbols
             538     2     uint16    error_count   Number of failed symbols
 
@@ -981,14 +998,14 @@ class HFTDataStream(BaseSocket):
                 'error_code': data[6:22].decode('utf-8').rstrip('\x00'),
                 'error_msg': data[22:534].decode('utf-8').rstrip('\x00'),
                 'request_type': data[534],  # 0=subscribe, 1=unsubscribe
-                'mode': data[535],  # 0=ltpc, 1=full
+                'mode': data[535],  # 0=ltpc, 1=full, 3=cas
                 'success_count': struct.unpack('<H', data[536:538])[0],
                 'error_count': struct.unpack('<H', data[538:540])[0]
             }
 
             # Convert numeric values to readable strings
             request_type_map = {0: 'subscribe', 1: 'unsubscribe'}
-            mode_map = {0: 'ltpc', 1: 'full'}
+            mode_map = {0: 'ltpc', 1: 'full', 3: 'cas'}
 
             response['request_type_str'] = request_type_map.get(response['request_type'], 'unknown')
             response['mode_str'] = mode_map.get(response['mode'], 'unknown')
@@ -1100,6 +1117,61 @@ class HFTDataStream(BaseSocket):
             logger.error(f"Error parsing Full packet: {e}")
             return None
 
+    def _parse_cas_packet(self, data: bytes) -> Optional[Dict]:
+        """Parse CAS packet (168 bytes, pkt_type 7).
+
+        CAS Packet Structure (little-endian):
+            Offset  Size  Type          Field              Description
+            0       2     int16         size               Packet size (168)
+            2       1     uint8         pkt_type           7 (PKT_TYPE_CAS)
+            3       1     uint8         exch_seg           Exchange segment
+            4       4     int32         token              HFT symbol ID (ExchangeID)
+            8       32    uint64[4]     bid_px             Four CAS limit-bid prices (paise)
+            40      16    uint32[4]     bid_size           Quantity at each bid level
+            56      32    uint64[4]     ask_px             Four CAS limit-ask prices (paise)
+            88      16    uint32[4]     ask_size           Quantity at each ask level
+            104     8     uint64        ts                 Exchange timestamp (epoch ns)
+            112     8     int64         imbalance_qty      Imbalance quantity magnitude
+            120     8     int64         imbalance_mkt_qty  Unmatched market/ATO quantity
+            128     8     uint64        indicative_px      Indicative/equilibrium price (paise)
+            136     8     uint64        closing_ref_px     CAS closing reference price (paise)
+            144     8     uint64        close_px           Official close after uncross (paise)
+            152     4     uint32        indicative_qty     Indicative matched quantity
+            156     4     uint32        mkt_bid_qty        Resting market/ATO bid quantity
+            160     4     uint32        mkt_ask_qty        Resting market/ATO ask quantity
+            164     1     uint8         phase              Auction phase
+            165     1     uint8         imbalance_side     Side of imbalance_qty
+            166     1     uint8         imbalance_mkt_side Side of imbalance_mkt_qty
+            167     1     uint8         only_limit_orders  1 when only limit orders allowed
+        """
+        try:
+            return {
+                'size': struct.unpack_from('<h', data, 0)[0],
+                'pkt_type': data[2],
+                'exch_seg': data[3],
+                'token': struct.unpack_from('<i', data, 4)[0],
+                'bid_px': [struct.unpack_from('<Q', data, 8 + i * 8)[0] for i in range(4)],
+                'bid_size': [struct.unpack_from('<I', data, 40 + i * 4)[0] for i in range(4)],
+                'ask_px': [struct.unpack_from('<Q', data, 56 + i * 8)[0] for i in range(4)],
+                'ask_size': [struct.unpack_from('<I', data, 88 + i * 4)[0] for i in range(4)],
+                'ts': struct.unpack_from('<Q', data, 104)[0],
+                'imbalance_qty': struct.unpack_from('<q', data, 112)[0],
+                'imbalance_mkt_qty': struct.unpack_from('<q', data, 120)[0],
+                'indicative_px': struct.unpack_from('<Q', data, 128)[0],
+                'closing_ref_px': struct.unpack_from('<Q', data, 136)[0],
+                'close_px': struct.unpack_from('<Q', data, 144)[0],
+                'indicative_qty': struct.unpack_from('<I', data, 152)[0],
+                'mkt_bid_qty': struct.unpack_from('<I', data, 156)[0],
+                'mkt_ask_qty': struct.unpack_from('<I', data, 160)[0],
+                'phase': data[164],
+                'imbalance_side': data[165],
+                'imbalance_mkt_side': data[166],
+                'only_limit_orders': data[167] == 1,
+            }
+        except Exception as e:
+            logger.error(f"Error parsing CAS packet: {e}")
+            return None
+
 
 class ArrowStreams:
     """Main client class providing order, data, and HFT streams.
@@ -1111,6 +1183,7 @@ class ArrowStreams:
         # Set up event handlers
         client.hft_data_stream.on_ltp_tick = lambda tick: print(f"LTP: {tick}")
         client.hft_data_stream.on_full_tick = lambda tick: print(f"Full: {tick}")
+        client.hft_data_stream.on_cas_tick = lambda tick: print(f"CAS: {tick}")
         client.hft_data_stream.on_response = lambda resp: print(f"Response: {resp}")
 
         # Connect to HFT data stream
@@ -1180,9 +1253,9 @@ class ArrowStreams:
         """Subscribe to HFT market data (HFTDataStream).
 
         Args:
-            mode: Data mode - 'ltpc' or 'l' for LTP, 'full' or 'f' for full market depth
+            mode: Data mode - 'ltpc'/'l', 'full'/'f', or 'cas'
             symbols: List of symbol names (strings) or token IDs (integers)
-            latency: Time interval between ticks in milliseconds (50-60000, default 1000)
+            latency: Tick interval in milliseconds (50-60000, default 1000). Omitted for CAS.
         """
         self.hft_data_stream.subscribe(mode, symbols, latency)
 
