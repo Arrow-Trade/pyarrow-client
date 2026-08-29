@@ -193,34 +193,38 @@ class ArrowClient(object):
     def cancel_all_orders(self):
         data = self._get(self._routes.GET_USER_ORDERS)
 
-        # Filter only open orders
-        pending_orders = [
+        standing_orders = [
             order for order in data
             if order["orderStatus"] in ("OPEN", "TRIGGER_PENDING", "PARTIALLY_FILLED")
         ]
-
-        # If nothing to cancel, return
-        if not pending_orders:
-            return []
+        stuck_pending = [
+            order for order in data
+            if str(order.get("orderStatus", "")).upper() in ("PENDING", "PENDINGNEW", "PENDING_NEW")
+        ]
 
         results = []
+        if standing_orders:
+            MAX_WORKERS = 9
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                future_to_order = {
+                    executor.submit(self.cancel_order, order["id"]): order["id"]
+                    for order in standing_orders
+                }
 
-        # Set worker count (tweak based on your API rate limits)
-        MAX_WORKERS = 9
+                for future in as_completed(future_to_order):
+                    oid = future_to_order[future]
+                    try:
+                        result = future.result()
+                        results.append((oid, "SUCCESS", result))
+                    except Exception as e:
+                        results.append((oid, "FAILED", str(e)))
 
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            future_to_order = {
-                executor.submit(self.cancel_order, order["id"]): order["id"]
-                for order in pending_orders
-            }
-
-            for future in as_completed(future_to_order):
-                oid = future_to_order[future]
-                try:
-                    result = future.result()
-                    results.append((oid, "SUCCESS", result))
-                except Exception as e:
-                    results.append((oid, "FAILED", str(e)))
+        if stuck_pending:
+            ids = ", ".join(str(o.get("id", "")) for o in stuck_pending)
+            raise ex.GeneralException(
+                f"{len(stuck_pending)} order(s) stuck in PENDING "
+                f"(exchange connectivity binary is down): {ids}"
+            )
 
         return results
 
@@ -301,7 +305,9 @@ class ArrowClient(object):
                     ) -> Dict[str, Any]:
 
 
-        url = f"{self._routes.get_candle_url()}/candle/{str(exchange)}/{token}/{interval}"
+        # Historical API accepts MCX / NSE / BSE — not MCXFO.
+        exchange_path = "MCX" if str(exchange).upper() == "MCXFO" else str(exchange)
+        url = f"{self._routes.get_candle_url()}/candle/{exchange_path}/{token}/{interval}"
 
         params = {
             'from': from_timestamp,

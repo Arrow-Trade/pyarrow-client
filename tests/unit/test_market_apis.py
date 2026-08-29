@@ -110,6 +110,21 @@ def test_candle_data(arrow_client):
     assert data[0]["c"] == 2505
 
 @responses.activate
+def test_candle_data_mcxfo_uses_mcx_path(arrow_client):
+    url = f"{arrow_client._routes.get_candle_url()}/candle/MCX/1450056/day?from=2026-08-01T09:00:00&to=2026-08-15T23:30:00&oi=1"
+    responses.add(responses.GET, url, json=[[ "2026-08-17T00:00:00+0530", 1, 2, 3, 4, 5 ]], status=200)
+
+    data = arrow_client.candle_data(
+        exchange=Exchange.MCXFO,
+        token="1450056",
+        interval="day",
+        from_timestamp="2026-08-01T09:00:00",
+        to_timestamp="2026-08-15T23:30:00",
+        oi=True,
+    )
+    assert len(data) == 1
+
+@responses.activate
 def test_get_holidays(arrow_client):
     url = f"{arrow_client.root_url}/info/holidays"
     mock_response = {

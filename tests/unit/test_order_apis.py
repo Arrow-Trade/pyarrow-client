@@ -45,6 +45,33 @@ def test_cancel_order(arrow_client):
     assert msg == "Order cancelled"
 
 @responses.activate
+def test_cancel_all_orders_errors_on_pending(arrow_client):
+    from pyarrow_client.exceptions import GeneralException
+
+    url = f"{arrow_client.root_url}/user/orders"
+    responses.add(
+        responses.GET,
+        url,
+        json={
+            "status": "success",
+            "data": [
+                {"id": "open-1", "orderStatus": "OPEN"},
+                {"id": "stuck-1", "orderStatus": "PENDING"},
+            ],
+        },
+        status=200,
+    )
+    responses.add(
+        responses.DELETE,
+        f"{arrow_client.root_url}/order/regular/open-1",
+        json={"status": "success", "message": "cancelled"},
+        status=200,
+    )
+
+    with pytest.raises(GeneralException, match="PENDING"):
+        arrow_client.cancel_all_orders()
+
+@responses.activate
 def test_get_order_details(arrow_client):
     url = f"{arrow_client.root_url}/order/12345"
     mock_response = {
