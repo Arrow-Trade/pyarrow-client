@@ -504,7 +504,8 @@ class ArrowClient(object):
                 raise ex.DataException(f"Invalid JSON response: {r.content!r}", method=method, url=url)
 
             if isinstance(data, dict):
-                if data.get(constants.STATUS) == constants.ERROR or data.get(constants.ERROR_CODE):
+                # 404/405 bodies are just {"message": ...}, so the HTTP status decides too.
+                if r.status_code >= 400 or data.get(constants.STATUS) in (constants.ERROR, "failure") or data.get(constants.ERROR_CODE):
                     if r.status_code == 403:
                         # TODO: handle session expiry
                         pass
